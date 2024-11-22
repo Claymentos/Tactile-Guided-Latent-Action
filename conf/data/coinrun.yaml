@@ -1,0 +1,7 @@
+data_module: 
+  _target_: lam.lightning.CoinRunModule
+  data_path: /home/bmachado/Documents/Experiments/Datasets/CoinRun/coinrun_64x64.h5
+  validation_path: /home/bmachado/Documents/Experiments/Datasets/CoinRun/coinrun_64x64_val.h5
+  window_size: 8
+  batch_size: 128
+  num_workers: 6

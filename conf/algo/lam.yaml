@@ -1,0 +1,40 @@
+model:
+  model_dim: 512
+  patch_size: 16
+  image_size: 64
+  channels: 3
+  _target_: lam.lam.LAM
+  encoder:
+    _target_: lam.st.STTransformer
+    model_dim: ${algo.model.model_dim}
+    n_layer: 8
+    num_spatial_heads: 8
+    num_temporal_heads: ${algo.model.encoder.num_spatial_heads}
+    dropout: 0.1
+    image_size: ${algo.model.image_size}
+    patch_size: ${algo.model.patch_size}
+    channels: ${algo.model.channels}
+    max_seq_len: 16
+    add_readout_token: true
+  decoder:
+    _target_: lam.st.STTransformer
+    model_dim: ${algo.model.model_dim}
+    n_layer: ${algo.model.encoder.n_layer}
+    num_spatial_heads: ${algo.model.encoder.num_spatial_heads}
+    num_temporal_heads: ${algo.model.decoder.num_spatial_heads}
+    dropout: ${algo.model.encoder.dropout}
+    image_size: ${algo.model.image_size}
+    patch_size: ${algo.model.patch_size}
+    channels: ${algo.model.channels}
+    max_seq_len: ${algo.model.encoder.max_seq_len}
+    add_readout_token: false
+  vq:
+    _target_: vector_quantize_pytorch.VectorQuantize  # Test other quantizers (such as FSQ)
+    dim: ${algo.model.model_dim}                       
+    codebook_size: 6
+    use_cosine_sim: false 
+    commitment_weight: 0.25
+    codebook_dim: 32
+    decay: 0.8
+    kmeans_init: false
+    threshold_ema_dead_code: 2
