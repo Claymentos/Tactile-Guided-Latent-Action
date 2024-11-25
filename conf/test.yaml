@@ -1,0 +1,11 @@
+defaults:
+  - _self_
+  - algo: lam
+  - data: coinrun
+
+image_path: /home/bmachado/Documents/Experiments/Datasets/CoinRun/coinrun_imgs_level_19/frame_55.png
+
+lightning_module: 
+  _target_: lam.lightning.LAMTraining.load_from_checkpoint
+  model: ${algo.model}
+  checkpoint_path: /home/bmachado/Documents/Experiments/LAM/runs/jean-zay/LAM/gljwjzht/checkpoints/epoch=40-step=198604.ckpt
