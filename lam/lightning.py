@@ -7,7 +7,8 @@ from torch import nn
 from sklearn.model_selection import train_test_split
 from torchvision.utils import make_grid
 
-from lam.data import AtariDataset, CoinRunDataset
+from lam.datasets.plataform_datasets import AtariDataset, CoinRunDataset
+from lam.datasets.rlds_datasets import RLDSBatchTransform, RLDSDataset, EpisodicRLDSDataset
 
 
 class LAMTraining(L.LightningModule):
@@ -56,8 +57,7 @@ class LAMTraining(L.LightningModule):
         '''
         recon_loss, commit_loss, recon_video = self.model(batch)
 
-        loss = recon_loss + commit_loss     # Add loss to help with VQ-VAE training
-                                            # Aparently not necessary with FSQ
+        loss = recon_loss + commit_loss
 
         self.log("val_loss", loss)
         self.log("val_recon_loss", recon_loss)
@@ -65,30 +65,20 @@ class LAMTraining(L.LightningModule):
 
         random_reconstruction = self.reconstruct_with_random_actions(batch)
         delta_psnr = self.psnr(batch[:, 1:], recon_video) - self.psnr(batch[:, 1:], random_reconstruction)
-        self.log("val_delta_psnr", delta_psnr)
+        self.log("val_delta_psnr_t=2", delta_psnr)
 
         imagination = self.imagine_with_random_actions(batch, times=4)
         delta_psnr = self.psnr(batch[:, 1:5], recon_video[:, :4]) - self.psnr(batch[:, 1:5], imagination)
-        self.log("val_delta_psnr_imagination", delta_psnr)
+        self.log("val_delta_psnr_imagination_t=4", delta_psnr)
 
         if batch_idx == 0:
-            # x = [make_grid([
-            #     (batch[0][t]*255).to('cpu', torch.uint8), (recon_video[0][t]*255).to('cpu', torch.uint8), (imagination[0][t]*255).to('cpu', torch.uint8),
-            #     (batch[1][t]*255).to('cpu', torch.uint8), (recon_video[1][t]*255).to('cpu', torch.uint8), (imagination[1][t]*255).to('cpu', torch.uint8),
-            #     (batch[2][t]*255).to('cpu', torch.uint8), (recon_video[2][t]*255).to('cpu', torch.uint8), (imagination[2][t]*255).to('cpu', torch.uint8),
-            #     (batch[3][t]*255).to('cpu', torch.uint8), (recon_video[3][t]*255).to('cpu', torch.uint8), (imagination[3][t]*255).to('cpu', torch.uint8)
-            # ], nrow=3) for t in range(imagination.size(1))]
-
-            # x = torch.stack(x, dim=0)
-            # video = wandb.Video(x, fps=4, caption="video_reconstruction_imagination")
-
             x = make_grid([
                 (batch[0][0]*255).to('cpu', torch.uint8), (batch[0][1]*255).to('cpu', torch.uint8), (recon_video[0][0]*255).to('cpu', torch.uint8), (random_reconstruction[0][0]*255).to('cpu', torch.uint8),
                 (batch[1][0]*255).to('cpu', torch.uint8), (batch[1][1]*255).to('cpu', torch.uint8), (recon_video[1][0]*255).to('cpu', torch.uint8), (random_reconstruction[1][0]*255).to('cpu', torch.uint8),
                 (batch[2][0]*255).to('cpu', torch.uint8), (batch[2][1]*255).to('cpu', torch.uint8), (recon_video[2][0]*255).to('cpu', torch.uint8), (random_reconstruction[2][0]*255).to('cpu', torch.uint8),
                 (batch[3][0]*255).to('cpu', torch.uint8), (batch[3][1]*255).to('cpu', torch.uint8), (recon_video[3][0]*255).to('cpu', torch.uint8), (random_reconstruction[3][0]*255).to('cpu', torch.uint8)
             ], nrow=4)
-            video = wandb.Image(x, caption="images_reconstruction_random aciton")
+            video = wandb.Image(x, caption="frame1_frame2_reconstruction_random aciton")
             self.logger.experiment.log({"val_images": video})
 
             x = [make_grid([
@@ -99,7 +89,7 @@ class LAMTraining(L.LightningModule):
             ], nrow=3) for t in range(imagination.size(1))]
 
             x = torch.stack(x, dim=0)
-            video = wandb.Video(x, fps=4, caption="video_reconstruction_imagination")
+            video = wandb.Video(x, fps=4, caption="video_reconstruction_imagination with random actions")
             self.logger.experiment.log({"val_videos": video})
 
         return loss
@@ -213,3 +203,64 @@ class CoinRunModule(L.LightningDataModule):
                                            batch_size=self.batch_size, 
                                            num_workers=self.num_workers, 
                                            shuffle=True)
+    
+
+class RLDSModule(L.LightningDataModule):
+    def __init__(
+            self,
+            data_dir,
+            batch_size: int = 32,
+            validation: bool = False,
+            image_size: int = 224,
+            shuffle_buffer_size: int = 100_000,
+            episodic: bool = False,
+            image_aug: bool = False,
+            window_size: int = 1,
+            data_mix: str = "droid",
+    ):
+        super().__init__()
+        self.data_dir = data_dir
+        self.default_image_resolution = (3, image_size, image_size)
+        self.shuffle_buffer_size = shuffle_buffer_size
+        self.episodic = episodic
+        self.image_aug = image_aug
+        self.data_mix = data_mix
+        self.batch_size = batch_size
+        self.validation = validation
+        self.window_size = window_size
+
+    def build_dataset(self, train=True):
+        batch_transform = RLDSBatchTransform()
+
+        cls = RLDSDataset if not self.episodic else EpisodicRLDSDataset
+
+        dataset = cls(
+            self.data_dir,
+            self.data_mix,
+            batch_transform,
+            resize_resolution=self.default_image_resolution[1:],
+            shuffle_buffer_size=self.shuffle_buffer_size,
+            train=train,
+            image_aug=self.image_aug,
+            window_size=self.window_size,
+        )
+
+        return dataset
+
+    
+    def train_dataloader(self):
+        return torch.utils.data.DataLoader(
+            self.build_dataset(train=True),
+            batch_size=self.batch_size,
+            num_workers=0
+        )
+
+    def val_dataloader(self):
+        if not self.validation:
+            return []
+        
+        return torch.utils.data.DataLoader(
+            self.build_dataset(train=False),
+            batch_size=self.batch_size,
+            num_workers=0
+        )
