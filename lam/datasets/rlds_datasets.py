@@ -34,7 +34,7 @@ class RLDSBatchTransform:
     def __call__(self, rlds_batch: Dict[str, Any]) -> Dict[str, Any]:
         """Converts a RLDS batch to a format suitable for training a model."""         
         frames = rlds_batch["observation"]["image_primary"]
-        sample = rearrange(torch.tensor(frames, dtype=torch.float32) / 255.0, "t h w c -> t c h w")
+        sample = rearrange(torch.tensor(frames, dtype=torch.float32), "t h w c -> t c h w") / 255.0
 
         return sample
     

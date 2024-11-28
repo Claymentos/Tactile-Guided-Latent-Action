@@ -20,7 +20,6 @@ trainer:
   max_steps: 200_000
   gradient_clip_val: 1.0
   val_check_interval: 0.01
-  reload_dataloaders_every_n_epochs: 0
   precision: bf16-mixed
   logger:
     _target_: lightning.pytorch.loggers.WandbLogger

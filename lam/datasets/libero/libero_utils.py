@@ -27,12 +27,12 @@ def build_dataset(data_prefix,
                   demo_ids=None,
                   extra_obs_modality=None,
                   obs_seq_len=1, 
+                  hdf5_normalize_obs=False,
                   load_obs=True,
                   load_proprio=False,
                   task_embedding_format="clip",
                   episodic=False,
                   pre_compute_task_embeddings=False,
-                  batch_transform=None,
                   dataset_keys=["actions"],
                   ):
     benchmark = get_benchmark(benchmark_name)()
@@ -42,6 +42,8 @@ def build_dataset(data_prefix,
         few_shot_demos = demo_ids
     elif mode == 'fewshot':            
         few_shot_demos = [1, 5, 10, 20, 45]
+    else:
+        few_shot_demos = None
 
     few_shot_demos_list = [f"demo_{i}" for i in few_shot_demos] if few_shot_demos is not None else None
     
@@ -68,6 +70,7 @@ def build_dataset(data_prefix,
             seq_len=seq_len,
             obs_seq_len=obs_seq_len,
             frame_stack=frame_stack,
+            hdf5_normalize_obs=hdf5_normalize_obs,
             load_obs=load_obs,
             few_demos = few_shot_demos_list,
             n_demos=n_demos,
@@ -82,11 +85,11 @@ def build_dataset(data_prefix,
         task_embs = get_task_embs(task_embedding_format, descriptions)
         benchmark.set_task_embs(task_embs)
         datasets = [
-            SequenceVLDataset(ds, emb, i, td, batch_transform) for i,(ds, emb, td) in enumerate(zip(manip_datasets, task_embs, descriptions))
+            SequenceVLDataset(ds, emb, i, td) for i,(ds, emb, td) in enumerate(zip(manip_datasets, task_embs, descriptions))
         ]
     else:
         datasets = [
-            SequenceVLDataset(ds, None, i, td, batch_transform) for i, (ds, td) in enumerate(zip(manip_datasets, descriptions))
+            SequenceVLDataset(ds, None, i, td) for i, (ds, td) in enumerate(zip(manip_datasets, descriptions))
         ]
     n_demos = [data.n_demos for data in datasets]
     n_sequences = [data.total_num_sequences for data in datasets]
@@ -106,7 +109,8 @@ def get_dataset(
     obs_seq_len=1,
     frame_stack=1,
     filter_key=None,
-    hdf5_cache_mode="low_dim",
+    hdf5_cache_mode=None,
+    hdf5_normalize_obs=False,
     load_obs=True,
     few_demos=None,
     n_demos=None,
@@ -139,7 +143,7 @@ def get_dataset(
         goal_mode=None,
         hdf5_cache_mode=hdf5_cache_mode,  # cache dataset in memory to avoid repeated file i/o
         hdf5_use_swmr=False,
-        hdf5_normalize_obs=None,
+        hdf5_normalize_obs=hdf5_normalize_obs,
         filter_by_attribute=filter_key,  # can optionally provide a filter key here
         few_demos=few_demos,
         n_demos=n_demos,
@@ -148,14 +152,13 @@ def get_dataset(
     return dataset
 
 class SequenceVLDataset(Dataset):
-    def __init__(self, sequence_dataset, task_emb, task_id, task_description, batch_transform=None):
+    def __init__(self, sequence_dataset, task_emb, task_id, task_description):
         self.sequence_dataset = sequence_dataset
         self.task_description = task_description
         self.task_emb = task_emb
         self.task_id = task_id
         self.n_demos = self.sequence_dataset.n_demos
         self.total_num_sequences = self.sequence_dataset.total_num_sequences
-        self.batch_transform = batch_transform
 
     def __len__(self):
         return len(self.sequence_dataset)
@@ -167,7 +170,7 @@ class SequenceVLDataset(Dataset):
             return_dict["task_emb"] = self.task_emb
             return_dict["task_id"] = self.task_id        
 
-        return self.batch_transform(return_dict) if self.batch_transform is not None else return_dict
+        return return_dict
 
 
 def get_task_embs(task_embedding_format, descriptions):

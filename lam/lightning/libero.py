@@ -1,8 +1,7 @@
 import torch
 import lightning as L
-import random
+from torch.utils.data import DataLoader, random_split
 
-from lam.datasets.libero_datasets import LiberoBatchTransform
 from lam.datasets.libero.libero_utils import build_dataset
 
 
@@ -27,32 +26,7 @@ class LiberoDataModule(L.LightningDataModule):
         self.num_workers = num_workers
 
     def setup(self, stage):
-        batch_transform = LiberoBatchTransform()
-
-        if self.validation_split > 0:
-            demo_ids = random.sample(list(range(self.n_demos)), self.n_demos)
-            train_ids = demo_ids[round(self.n_demos*self.validation_split):]
-            val_ids = demo_ids[:round(self.n_demos*self.validation_split)]
-            self.n_demos = len(train_ids)
-
-            self.val_dataset = build_dataset(data_prefix=self.data_path,
-                                suite_name="libero",
-                                benchmark_name=self.benchmark_name,
-                                mode="fewshot",
-                                seq_len=1,
-                                frame_stack=self.window_size,
-                                shape_meta=self.shape_meta,
-                                n_demos=len(val_ids),
-                                demo_ids=val_ids,
-                                obs_seq_len=1,
-                                batch_transform=batch_transform,
-                                dataset_keys=[])
-            
-        else:
-            self.val_dataset = None
-            train_ids = None
-
-        self.train_dataset = build_dataset(data_prefix=self.data_path,
+        dataset = build_dataset(data_prefix=self.data_path,
                                 suite_name="libero",
                                 benchmark_name=self.benchmark_name,
                                 mode="all",
@@ -60,24 +34,33 @@ class LiberoDataModule(L.LightningDataModule):
                                 frame_stack=self.window_size,
                                 shape_meta=self.shape_meta,
                                 n_demos=self.n_demos,
-                                demo_ids=train_ids,
                                 obs_seq_len=1,
-                                batch_transform=batch_transform,
                                 dataset_keys=[])
+        
+        if self.validation_split > 0:
+            validation_set_size = int(len(dataset) * self.validation_split)
+            training_set_size = len(dataset) - validation_set_size
+            self.train_dataset, self.val_dataset = random_split(dataset, [training_set_size, validation_set_size])
+
+        else:
+            self.train_dataset, self.val_dataset = dataset, None
+
 
     def train_dataloader(self):
-        return torch.utils.data.DataLoader(self.train_dataset, 
-                                           batch_size=self.batch_size, 
-                                           num_workers=self.num_workers,
-                                           pin_memory=True,
-                                           prefetch_factor=2, 
-                                           shuffle=True)
+        return DataLoader(self.train_dataset, 
+                          batch_size=self.batch_size, 
+                          num_workers=self.num_workers,
+                          pin_memory=True,
+                          persistent_workers=True,
+                          prefetch_factor=2, 
+                          shuffle=True)
 
     def val_dataloader(self):
         if self.val_dataset is None:
             return []
         
-        return torch.utils.data.DataLoader(self.val_dataset, 
-                                           batch_size=self.batch_size, 
-                                           num_workers=self.num_workers, 
-                                           shuffle=True)
+        return DataLoader(self.val_dataset, 
+                          batch_size=self.batch_size, 
+                          num_workers=self.num_workers, 
+                          persistent_workers=False,
+                          shuffle=True)

@@ -17,16 +17,6 @@ import lam.datasets.libero.tensor_utils as TensorUtils
 import lam.datasets.libero.obs_utils as ObsUtils
 
 
-class LiberoBatchTransform:
-    def __call__(self, batch):
-        frames = batch["obs"]["agentview_rgb"]
-        
-        sample = torch.tensor(frames, dtype=torch.float32) / 255.0
-        sample = torch.flip(sample, dims=(-2,))                        # Images on libero are upside down
-
-        return sample
-
-
 class SequenceDataset(torch.utils.data.Dataset):
     def __init__(
         self,
@@ -43,6 +33,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         goal_mode=None,
         hdf5_cache_mode=None,
         hdf5_use_swmr=True,
+        hdf5_normalize_obs_stats=False,
         hdf5_normalize_obs=False,
         filter_by_attribute=None,
         load_next_obs=True,
@@ -88,7 +79,7 @@ class SequenceDataset(torch.utils.data.Dataset):
             hdf5_use_swmr (bool): whether to use swmr feature when opening the hdf5 file. This ensures
                 that multiple Dataset instances can all access the same hdf5 file without problems.
 
-            hdf5_normalize_obs (bool): if True, normalize observations by computing the mean observation
+            hdf5_normalize_obs_stats (bool): if True, normalize observations by computing the mean observation
                 and std of each observation (in each dimension and modality), and normalizing to unit
                 mean and variance in each dimension.
 
@@ -100,6 +91,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         super(SequenceDataset, self).__init__()
         self.hdf5_path = os.path.expanduser(hdf5_path)
         self.hdf5_use_swmr = hdf5_use_swmr
+        self.hdf5_normalize_obs_stats = hdf5_normalize_obs_stats
         self.hdf5_normalize_obs = hdf5_normalize_obs
         self._hdf5_file = None
 
@@ -139,7 +131,7 @@ class SequenceDataset(torch.utils.data.Dataset):
 
         # maybe prepare for observation normalization
         self.obs_normalization_stats = None
-        if self.hdf5_normalize_obs:
+        if self.hdf5_normalize_obs_stats:
             self.obs_normalization_stats = self.normalize_obs()
 
         # maybe store dataset in memory for fast access
@@ -391,7 +383,7 @@ class SequenceDataset(torch.utils.data.Dataset):
                 with a "mean" and "std" of shape (1, ...) where ... is the default
                 shape for the observation.
         """
-        assert self.hdf5_normalize_obs, "not using observation normalization!"
+        assert self.hdf5_normalize_obs_stats, "not using observation normalization!"
         return deepcopy(self.obs_normalization_stats)
 
     def get_dataset_for_ep(self, ep, key):
@@ -460,7 +452,7 @@ class SequenceDataset(torch.utils.data.Dataset):
             index_in_demo=index_in_demo,
             keys=self.dataset_keys,
             seq_length=self.seq_length
-        )
+        ) if len(self.dataset_keys) > 0 else {}
 
         # determine goal index
         goal_index = None
@@ -503,11 +495,13 @@ class SequenceDataset(torch.utils.data.Dataset):
                 prefix="obs"
             ))
 
-        if self.hdf5_normalize_obs:
+        if self.hdf5_normalize_obs_stats:
             meta["obs"] = ObsUtils.normalize_obs(meta["obs"], obs_normalization_stats=self.obs_normalization_stats)
+        elif self.hdf5_normalize_obs:
+            meta["obs"] = {k: v / 255.0 for k, v in meta["obs"].items()}
 
         # print(meta['obs'])
-        # print(self.hdf5_normalize_obs)
+        # print(self.hdf5_normalize_obs_stats)
         # breakpoint()
 
         if self.load_next_obs:
@@ -532,7 +526,7 @@ class SequenceDataset(torch.utils.data.Dataset):
                 prefix="obs"
             )
 
-            if self.hdf5_normalize_obs:
+            if self.hdf5_normalize_obs_stats:
                 meta["next_obs"] = ObsUtils.normalize_obs(meta["next_obs"], obs_normalization_stats=self.obs_normalization_stats)
 
         if goal_index is not None:
@@ -544,7 +538,7 @@ class SequenceDataset(torch.utils.data.Dataset):
                 seq_length=1,
                 prefix="next_obs",
             )
-            if self.hdf5_normalize_obs:
+            if self.hdf5_normalize_obs_stats:
                 goal = ObsUtils.normalize_obs(goal, obs_normalization_stats=self.obs_normalization_stats)
             meta["goal_obs"] = {k: goal[k][0] for k in goal}  # remove sequence dimension for goal
 

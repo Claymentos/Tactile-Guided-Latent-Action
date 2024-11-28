@@ -27,6 +27,7 @@ class LAMTraining(L.LightningModule):
         arguments:
         batch: torch.Tensor, shape: (batch_size, seq_len, channels, height, width)
         '''
+        batch = self.preprocess(batch)
         recon_loss, commit_loss, recon_video = self.model(batch)
 
         loss = recon_loss + commit_loss     # Add loss to help with VQ-VAE training
@@ -50,6 +51,7 @@ class LAMTraining(L.LightningModule):
         arguments:
         batch: torch.Tensor, shape: (batch_size, seq_len, channels, height, width)
         '''
+        batch = self.preprocess(batch)
         recon_loss, commit_loss, recon_video = self.model(batch)
 
         loss = recon_loss + commit_loss
@@ -89,6 +91,11 @@ class LAMTraining(L.LightningModule):
 
         return loss
     
+    def preprocess(self, batch):
+        if isinstance(batch, dict):
+            batch = torch.flip(batch['obs']['agentview_rgb'], dims=(-2,)) / 255.0           # Images on Libero are upside down
+
+        return batch
 
     def reconstruct_with_random_actions(self, batch):
         random_indices = torch.randint(0, self.model.vq.codebook_size, (batch.size(0), batch.size(1)-1), device=batch.device)
@@ -110,7 +117,6 @@ class LAMTraining(L.LightningModule):
             x = recon_video
 
         return imagination[:, 1:]
-
 
     def psnr(self, image, reconstruction):
         return 10 * torch.log10((1.0**2) / torch.nn.functional.mse_loss(reconstruction, image)).item()
