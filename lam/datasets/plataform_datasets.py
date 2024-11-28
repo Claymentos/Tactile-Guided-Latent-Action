@@ -71,9 +71,6 @@ class CoinRunDataset(torch.utils.data.Dataset):
             self.h5_file.close()
 
 
-
-
-
 class CoinRunDataset2(torch.utils.data.Dataset):
     '''
     It can start at any given frame, adding a lot of redundancy to the dataset.

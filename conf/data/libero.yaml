@@ -1,0 +1,16 @@
+data_module: 
+  _target_: lam.lightning.libero.LiberoDataModule
+  data_path: /home/bmachado/Documents/Experiments/Datasets/LIBERO/libero/datasets
+  benchmark_name: LIBERO_90
+  window_size: 16
+  n_demos: 50
+  validation_split: 0.1
+  batch_size: 8
+  num_workers: 6
+  shape_meta:
+    observation:
+      rgb:
+        agentview_rgb:
+          - 3
+          - ${algo.model.image_size}
+          - ${algo.model.image_size}

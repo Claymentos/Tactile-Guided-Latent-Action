@@ -1,5 +1,5 @@
 data_module: 
-  _target_: lam.lightning.RLDSModule
+  _target_: lam.lightning.rlds.RLDSModule
   data_dir: /home/bmachado/Documents/Experiments/Datasets/DROID
   batch_size: 64
   validation: true

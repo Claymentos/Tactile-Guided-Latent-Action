@@ -1,5 +1,5 @@
 data_module: 
-  _target_: lam.lightning.AtariDataModule
+  _target_: lam.lightning.plataform.AtariDataModule
   data_path: /home/bmachado/Documents/Experiments/Datasets/atarigrandchallenge/revenge_128x128_32.h5
   validation_split: 0.10
   window_size: 32
