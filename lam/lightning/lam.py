@@ -3,7 +3,9 @@ import lightning as L
 import wandb
 
 from torch import nn
+from einops import rearrange
 from torchvision.utils import make_grid
+from torchmetrics.functional.image import structural_similarity_index_measure as ssim
 
 
 class LAMTraining(L.LightningModule):
@@ -28,21 +30,18 @@ class LAMTraining(L.LightningModule):
         batch: torch.Tensor, shape: (batch_size, seq_len, channels, height, width)
         '''
         batch = self.preprocess(batch)
-        recon_loss, commit_loss, recon_video = self.model(batch)
+        recon_loss, commit_loss, recon_video, indices = self.model(batch)
 
-        loss = recon_loss + commit_loss     # Add loss to help with VQ-VAE training
-                                            # Aparently not necessary with FSQ
+        loss = recon_loss + commit_loss     # Add VQ-VAE loss
+                                            # Check if it is necessary with FSQ
 
         self.log("train_loss", loss)
         self.log("train_recon_loss", recon_loss)
         self.log("train_commit_loss", commit_loss)
 
         with torch.no_grad():
-            imagination = self.reconstruct_with_random_actions(batch)
-            delta_psnr = self.psnr(batch[:, 1:], recon_video) - self.psnr(batch[:, 1:], imagination)
-            self.log("train_delta_psnr", delta_psnr)
+            self.compute_metrics(batch, recon_video, indices)
        
-
         return loss
 
     
@@ -52,7 +51,7 @@ class LAMTraining(L.LightningModule):
         batch: torch.Tensor, shape: (batch_size, seq_len, channels, height, width)
         '''
         batch = self.preprocess(batch)
-        recon_loss, commit_loss, recon_video = self.model(batch)
+        recon_loss, commit_loss, recon_video, indices = self.model(batch)
 
         loss = recon_loss + commit_loss
 
@@ -60,33 +59,22 @@ class LAMTraining(L.LightningModule):
         self.log("val_recon_loss", recon_loss)
         self.log("val_commit_loss", commit_loss)
 
-        random_reconstruction = self.reconstruct_with_random_actions(batch)
-        delta_psnr = self.psnr(batch[:, 1:], recon_video) - self.psnr(batch[:, 1:], random_reconstruction)
-        self.log("val_delta_psnr_t=2", delta_psnr)
+        random_reconstruction = self.compute_metrics(batch, recon_video, indices, return_random_reconstruction=True)
 
         imagination = self.imagine_with_random_actions(batch, times=4)
         delta_psnr = self.psnr(batch[:, 1:5], recon_video[:, :4]) - self.psnr(batch[:, 1:5], imagination)
         self.log("val_delta_psnr_imagination_t=4", delta_psnr)
 
         if batch_idx == 0:
-            x = make_grid([
-                (batch[0][0]*255).to('cpu', torch.uint8), (batch[0][1]*255).to('cpu', torch.uint8), (recon_video[0][0]*255).to('cpu', torch.uint8), (random_reconstruction[0][0]*255).to('cpu', torch.uint8),
-                (batch[1][0]*255).to('cpu', torch.uint8), (batch[1][1]*255).to('cpu', torch.uint8), (recon_video[1][0]*255).to('cpu', torch.uint8), (random_reconstruction[1][0]*255).to('cpu', torch.uint8),
-                (batch[2][0]*255).to('cpu', torch.uint8), (batch[2][1]*255).to('cpu', torch.uint8), (recon_video[2][0]*255).to('cpu', torch.uint8), (random_reconstruction[2][0]*255).to('cpu', torch.uint8),
-                (batch[3][0]*255).to('cpu', torch.uint8), (batch[3][1]*255).to('cpu', torch.uint8), (recon_video[3][0]*255).to('cpu', torch.uint8), (random_reconstruction[3][0]*255).to('cpu', torch.uint8)
-            ], nrow=4)
-            video = wandb.Image(x, caption="frame1_frame2_reconstruction_random aciton")
-            self.logger.experiment.log({"val_images": video})
-
             x = [make_grid([
-                (batch[0][t+1]*255).to('cpu', torch.uint8), (recon_video[0][t]*255).to('cpu', torch.uint8), (imagination[0][t]*255).to('cpu', torch.uint8),
-                (batch[1][t+1]*255).to('cpu', torch.uint8), (recon_video[1][t]*255).to('cpu', torch.uint8), (imagination[1][t]*255).to('cpu', torch.uint8),
-                (batch[2][t+1]*255).to('cpu', torch.uint8), (recon_video[2][t]*255).to('cpu', torch.uint8), (imagination[2][t]*255).to('cpu', torch.uint8),
-                (batch[3][t+1]*255).to('cpu', torch.uint8), (recon_video[3][t]*255).to('cpu', torch.uint8), (imagination[3][t]*255).to('cpu', torch.uint8)
-            ], nrow=3) for t in range(imagination.size(1))]
+                (batch[0][t+1]*255).to('cpu', torch.uint8), (recon_video[0][t]*255).to('cpu', torch.uint8), (imagination[0][t]*255).to('cpu', torch.uint8), (random_reconstruction[0][t]*255).to('cpu', torch.uint8),
+                (batch[1][t+1]*255).to('cpu', torch.uint8), (recon_video[1][t]*255).to('cpu', torch.uint8), (imagination[1][t]*255).to('cpu', torch.uint8), (random_reconstruction[1][t]*255).to('cpu', torch.uint8),
+                (batch[2][t+1]*255).to('cpu', torch.uint8), (recon_video[2][t]*255).to('cpu', torch.uint8), (imagination[2][t]*255).to('cpu', torch.uint8), (random_reconstruction[2][t]*255).to('cpu', torch.uint8),
+                (batch[3][t+1]*255).to('cpu', torch.uint8), (recon_video[3][t]*255).to('cpu', torch.uint8), (imagination[3][t]*255).to('cpu', torch.uint8), (random_reconstruction[3][t]*255).to('cpu', torch.uint8)
+            ], nrow=4) for t in range(imagination.size(1))]
 
             x = torch.stack(x, dim=0)
-            video = wandb.Video(x, fps=4, caption="video_reconstruction_imagination with random actions")
+            video = wandb.Video(x, fps=4, caption="video_reconstruction_imagination with random actions_reconstruction with random actions")
             self.logger.experiment.log({"val_videos": video})
 
         return loss
@@ -118,8 +106,65 @@ class LAMTraining(L.LightningModule):
 
         return imagination[:, 1:]
 
+    def compute_metrics(self, batch, recon_video, indices, return_random_reconstruction=False):
+        imagination = self.reconstruct_with_random_actions(batch)
+        delta_psnr = self.psnr(batch[:, 1:], recon_video) - self.psnr(batch[:, 1:], imagination)
+        self.log("train_delta_psnr", delta_psnr)
+        
+        ssim_score = ssim(rearrange(recon_video, 'b t c h w -> (b t) c h w'), rearrange(batch[:, 1:], 'b t c h w -> (b t) c h w'))
+        self.log("train_ssim", ssim_score)
+
+        codebook_usage, codebook_entropy, codebook_cv = self.codebook_usage(indices)
+        self.log("train_codebook_usage", codebook_usage)
+        self.log("train_codebook_entropy", codebook_entropy)
+        self.log("train_codebook_cv", codebook_cv)
+
+        distinctiveness_cosine = self.distinctiveness_cosine(self.model.vq.codebook)
+        distinctiveness_gram = self.gram_matrix_distinctiveness(self.model.vq.codebook)
+        self.log("train_distinctiveness_cosine", distinctiveness_cosine)
+        self.log("train_distinctiveness_gram", distinctiveness_gram)
+
+        if return_random_reconstruction:
+            return imagination
+
     def psnr(self, image, reconstruction):
         return 10 * torch.log10((1.0**2) / torch.nn.functional.mse_loss(reconstruction, image)).item()
+
+    def codebook_usage(self, indices):
+        values, counts = torch.unique(indices, return_counts=True)
+        total_counts = torch.full((self.model.vq.codebook_size,), 0, device=indices.device)
+        total_counts[values] = counts
+
+        codebook_usage =  torch.mean((total_counts != 0).float())
+        codebook_entropy = self.entropy(total_counts)
+        codebook_cv = self.coefficient_of_variation(total_counts)
+
+        return codebook_usage, codebook_entropy, codebook_cv
+    
+    def entropy(self, histogram):
+        histogram = histogram + 1e-10                   # Avoid log(0)
+        probabilities = histogram / histogram.sum()
+        return -torch.sum(probabilities * torch.log(probabilities))
+    
+    def  coefficient_of_variation(self, histogram):
+        return histogram.float().std() / histogram.float().mean()
+    
+    def distinctiveness_cosine(self, codes):
+        '''Measure how distinct the codes are using cosine similarity'''
+        normalized_vectors = codes / torch.norm(codes, dim=1, keepdim=True)
+
+        similarity_matrix = normalized_vectors @ normalized_vectors.T
+
+        mask = ~torch.eye(codes.shape[0], dtype=bool)
+        average_similarity = similarity_matrix[mask].mean()
+
+        return 1.0 - average_similarity
+
+    def gram_matrix_distinctiveness(self, codes):
+        '''Measure how distinct the codes are using the gram matrix'''
+        gram_matrix = codes @ codes.T
+
+        return torch.det(gram_matrix.float())
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)

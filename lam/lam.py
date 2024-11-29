@@ -44,7 +44,7 @@ class LAM(nn.Module):
 
         recon_loss = nn.functional.mse_loss(recon_video, x[:, 1:, :, :, :])        # The first frame of x is not used as a target
         
-        return recon_loss, commit_loss, recon_video
+        return recon_loss, commit_loss, recon_video, indices
 
         
     def encode(self, x):
