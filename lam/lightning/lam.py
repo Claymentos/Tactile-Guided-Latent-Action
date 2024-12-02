@@ -40,7 +40,7 @@ class LAMTraining(L.LightningModule):
         self.log("train_commit_loss", commit_loss)
 
         with torch.no_grad():
-            self.compute_metrics(batch, recon_video, indices)
+            self.compute_metrics(batch, recon_video, indices, prefix="train")
        
         return loss
 
@@ -59,7 +59,7 @@ class LAMTraining(L.LightningModule):
         self.log("val_recon_loss", recon_loss)
         self.log("val_commit_loss", commit_loss)
 
-        random_reconstruction = self.compute_metrics(batch, recon_video, indices, return_random_reconstruction=True)
+        random_reconstruction = self.compute_metrics(batch, recon_video, indices, prefix="val", return_random_reconstruction=True)
 
         imagination = self.imagine_with_random_actions(batch, times=4)
         delta_psnr = self.psnr(batch[:, 1:5], recon_video[:, :4]) - self.psnr(batch[:, 1:5], imagination)
@@ -106,23 +106,23 @@ class LAMTraining(L.LightningModule):
 
         return imagination[:, 1:]
 
-    def compute_metrics(self, batch, recon_video, indices, return_random_reconstruction=False):
+    def compute_metrics(self, batch, recon_video, indices, prefix, return_random_reconstruction=False):
         imagination = self.reconstruct_with_random_actions(batch)
         delta_psnr = self.psnr(batch[:, 1:], recon_video) - self.psnr(batch[:, 1:], imagination)
-        self.log("train_delta_psnr", delta_psnr)
+        self.log(f"{prefix}_delta_psnr", delta_psnr)
         
         ssim_score = ssim(rearrange(recon_video, 'b t c h w -> (b t) c h w'), rearrange(batch[:, 1:], 'b t c h w -> (b t) c h w'))
-        self.log("train_ssim", ssim_score)
+        self.log(f"{prefix}_ssim", ssim_score)
 
         codebook_usage, codebook_entropy, codebook_cv = self.codebook_usage(indices)
-        self.log("train_codebook_usage", codebook_usage)
-        self.log("train_codebook_entropy", codebook_entropy)
-        self.log("train_codebook_cv", codebook_cv)
+        self.log(f"{prefix}_codebook_usage", codebook_usage)
+        self.log(f"{prefix}_codebook_entropy", codebook_entropy)
+        self.log(f"{prefix}_codebook_cv", codebook_cv)
 
         distinctiveness_cosine = self.distinctiveness_cosine(self.model.vq.codebook)
         distinctiveness_gram = self.gram_matrix_distinctiveness(self.model.vq.codebook)
-        self.log("train_distinctiveness_cosine", distinctiveness_cosine)
-        self.log("train_distinctiveness_gram", distinctiveness_gram)
+        self.log(f"{prefix}_distinctiveness_cosine", distinctiveness_cosine)
+        self.log(f"{prefix}_distinctiveness_gram", distinctiveness_gram)
 
         if return_random_reconstruction:
             return imagination
