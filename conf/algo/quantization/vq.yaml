@@ -1,0 +1,12 @@
+vq:
+  _target_: lam.quantization.wrappers.VQ
+  model:
+    _target_: vector_quantize_pytorch.VectorQuantize
+    dim: ${algo.model.model_dim}                       
+    codebook_size: 8
+    use_cosine_sim: true 
+    commitment_weight: 0.25
+    codebook_dim: 32
+    decay: 0.8
+    kmeans_init: false
+    threshold_ema_dead_code: 2

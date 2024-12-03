@@ -1,6 +1,5 @@
 from torch import nn
 from einops.layers.torch import Rearrange
-from einops import rearrange
 
 
 class LAM(nn.Module):
@@ -34,14 +33,9 @@ class LAM(nn.Module):
         '''
         logits, readout = self.encode(x)
         readout = readout[:, 1:, :]                                                 # Ignore the first action token, it doesn't represent any transition
-        readout = rearrange(readout, 'b t f -> (b t) f')
-
-        action_tokens, indices, commit_loss = self.vq(readout)
-        action_tokens = rearrange(action_tokens, '(b t) f -> b t f', b=x.size(0), t=x.size(1)-1)
-        indices = rearrange(indices, '(b t) -> b t', b=x.size(0), t=x.size(1)-1)
+        action_tokens, indices, commit_loss = self.vq.quantize(readout)
 
         recon_video = self.decode(x, action_tokens)
-
         recon_loss = nn.functional.mse_loss(recon_video, x[:, 1:, :, :, :])        # The first frame of x is not used as a target
         
         return recon_loss, commit_loss, recon_video, indices

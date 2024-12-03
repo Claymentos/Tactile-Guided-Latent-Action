@@ -1,0 +1,6 @@
+vq:
+  _target_: lam.quantization.wrappers.FSQ
+  model:
+    _target_: vector_quantize_pytorch.FSQ
+    dim: ${algo.model.model_dim}                       
+    levels: [4, 2]

@@ -14,6 +14,7 @@ class LAMTraining(L.LightningModule):
                  learning_rate: float = 1e-3, 
                  weight_decay: float = 0.01,
                  scheduler_max_steps: int = 200_000,
+                 codebook_replace_freq: float = 0.05
                 ):
         super().__init__()
         self.save_hyperparameters(ignore="model")
@@ -22,6 +23,7 @@ class LAMTraining(L.LightningModule):
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.steps = scheduler_max_steps
+        self.codebook_replace_freq = codebook_replace_freq      # Only used in NSVQ
 
 
     def training_step(self, batch, batch_idx):
@@ -41,7 +43,9 @@ class LAMTraining(L.LightningModule):
 
         with torch.no_grad():
             self.compute_metrics(batch, recon_video, indices, prefix="train")
-       
+
+        self.replace_unused_codebook_entries()      # Only used in NSVQ
+
         return loss
 
     
@@ -61,7 +65,7 @@ class LAMTraining(L.LightningModule):
 
         random_reconstruction = self.compute_metrics(batch, recon_video, indices, prefix="val", return_random_reconstruction=True)
 
-        imagination = self.imagine_with_random_actions(batch, times=4)
+        imagination = self.imagine_with_random_actions(batch, times=min(4, recon_video.size(1)))
         delta_psnr = self.psnr(batch[:, 1:5], recon_video[:, :4]) - self.psnr(batch[:, 1:5], imagination)
         self.log("val_delta_psnr_imagination_t=4", delta_psnr)
 
@@ -87,7 +91,7 @@ class LAMTraining(L.LightningModule):
 
     def reconstruct_with_random_actions(self, batch):
         random_indices = torch.randint(0, self.model.vq.codebook_size, (batch.size(0), batch.size(1)-1), device=batch.device)
-        random_action_tokens = self.model.vq.project_out(self.model.vq.codebook[random_indices]) 
+        random_action_tokens = self.model.vq.dequantize(random_indices) 
         recon_video = self.model.decode(batch, random_action_tokens)
 
         return recon_video
@@ -99,7 +103,7 @@ class LAMTraining(L.LightningModule):
 
         for t in range(times):
             random_indices = torch.randint(0, self.model.vq.codebook_size, (batch.size(0), 1), device=batch.device)
-            random_action_tokens = self.model.vq.project_out(self.model.vq.codebook[random_indices]) 
+            random_action_tokens = self.model.vq.dequantize(random_indices) 
             recon_video = self.model.decode(x, random_action_tokens)
             imagination = torch.cat([imagination, recon_video], dim=1)
             x = recon_video
@@ -119,10 +123,8 @@ class LAMTraining(L.LightningModule):
         self.log(f"{prefix}_codebook_entropy", codebook_entropy)
         self.log(f"{prefix}_codebook_cv", codebook_cv)
 
-        distinctiveness_cosine = self.distinctiveness_cosine(self.model.vq.codebook)
-        distinctiveness_gram = self.gram_matrix_distinctiveness(self.model.vq.codebook)
+        distinctiveness_cosine = self.distinctiveness_cosine(self.model.vq.get_codebook())
         self.log(f"{prefix}_distinctiveness_cosine", distinctiveness_cosine)
-        self.log(f"{prefix}_distinctiveness_gram", distinctiveness_gram)
 
         if return_random_reconstruction:
             return imagination
@@ -160,11 +162,15 @@ class LAMTraining(L.LightningModule):
 
         return 1.0 - average_similarity
 
-    def gram_matrix_distinctiveness(self, codes):
-        '''Measure how distinct the codes are using the gram matrix'''
-        gram_matrix = codes @ codes.T
+    def replace_unused_codebook_entries(self):
+        if self.global_step == 0:
+            return
+        
+        replace_interval = int(self.steps * self.codebook_replace_freq)
 
-        return torch.det(gram_matrix.float())
+        if ((self.global_step % replace_interval) == 0) and (self.global_step <= self.steps - 2 * replace_interval):
+            self.model.vq.replace_codebook(replace_interval)
+
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
