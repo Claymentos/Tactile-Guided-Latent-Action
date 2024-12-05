@@ -1,6 +1,7 @@
 import torch
 import hydra
 
+from omegaconf import OmegaConf
 from lightning.pytorch import seed_everything
 from hydra.utils import instantiate
 
@@ -18,6 +19,10 @@ def train(config):
     
     trainer = instantiate(config.trainer)
     trainer.logger.log_hyperparams(config)
+
+    with open(f"{trainer.logger.experiment.dir}/model_config.yaml", "w") as f:
+        OmegaConf.save(config, f)
+
     trainer.fit(model=lightning_module, datamodule=data_module, ckpt_path=config.checkpoint_path)
 
 
