@@ -1,11 +1,14 @@
 defaults:
   - _self_
   - algo: lam
+  - algo/quantization: vq
   - data: coinrun
 
-image_path: /home/bmachado/Documents/Experiments/Datasets/CoinRun/coinrun_imgs_level_19/frame_55.png
+image_path: /home/bmachado/Documents/Experiments/Datasets/Fractal/Example_2.png
+
+model_config: /home/bmachado/Documents/Experiments/LAM/runs/jean-zay/LAM/iy8iroi4/model_config.yaml
 
 lightning_module: 
   _target_: lam.lightning.lam.LAMTraining.load_from_checkpoint
   model: ${algo.model}
-  checkpoint_path: /home/bmachado/Documents/Experiments/LAM/runs/jean-zay/LAM/gljwjzht/checkpoints/epoch=40-step=198604.ckpt
+  checkpoint_path: /home/bmachado/Documents/Experiments/LAM/runs/jean-zay/LAM/iy8iroi4/epoch=8-step=120000.ckpt

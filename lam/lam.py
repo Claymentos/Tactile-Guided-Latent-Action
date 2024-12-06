@@ -35,8 +35,8 @@ class LAM(nn.Module):
         readout = readout[:, 1:, :]                                                 # Ignore the first action token, it doesn't represent any transition
         action_tokens, indices, commit_loss = self.vq.quantize(readout)
 
-        recon_video = self.decode(x, action_tokens)
-        recon_loss = nn.functional.mse_loss(recon_video, x[:, 1:, :, :, :])        # The first frame of x is not used as a target
+        recon_video = self.decode(x[:, :-1, :, :, :], action_tokens)                # Ignore the last frame, since there is no target for it
+        recon_loss = nn.functional.mse_loss(recon_video, x[:, 1:, :, :, :])         # The first frame of x is not used as a target
         
         return recon_loss, commit_loss, recon_video, indices
 
@@ -46,9 +46,6 @@ class LAM(nn.Module):
     
 
     def decode(self, x, actions):
-        if x.size(1) >  1:
-            x = x[:, :-1, :, :, :]         # Ignore the last frame
-            
         logits = self.decoder(x, actions)
 
         reconstruction = self.to_image(logits)

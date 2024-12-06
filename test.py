@@ -3,28 +3,61 @@ import hydra
 import pygame
 
 from PIL import Image
-from hydra.utils import call
+from omegaconf import OmegaConf
+from hydra.utils import instantiate, call
 from torchvision.transforms.functional import pil_to_tensor, to_pil_image
+
+
+class GameHandler:
+    def __init__(self, max_action):
+        self.input_buffer = ""
+        self.max_action = max_action
+        self.screen = pygame.display.set_mode((512, 512))
+        pygame.display.set_caption("LAM CoinRun")
+
+    def handle_event(self, event):
+        if event.type == pygame.KEYDOWN:
+            if event.unicode.isdigit():
+                self.input_buffer += event.unicode
+
+            elif event.key == pygame.K_BACKSPACE:
+                self.input_buffer = self.input_buffer[:-1]
+
+            elif event.key == pygame.K_RETURN and self.input_buffer:
+                number = int(self.input_buffer)
+                self.input_buffer = ""
+
+                if 0 <= number <= self.max_action:
+                    return number
+                else:
+                    return None
+                
+        return None
+
+    def display_image(self, image):
+        display_image = pygame.image.fromstring(image.tobytes(), image.size, image.mode)
+        display_image = pygame.transform.scale(display_image, (512, 512))
+        self.screen.blit(display_image, (0, 0))
+        pygame.display.flip()
 
 
 @hydra.main(config_path="conf", config_name="test")
 def main(cfg):
-    model = call(cfg.lightning_module)
+    model_config = OmegaConf.load(cfg.model_config)
+    backbone = instantiate(model_config.algo.model)
+
+    model = call(cfg.lightning_module, model=backbone)
     model.eval()
 
-    input_image = Image.open(cfg.image_path)    
-    input_tensor = pil_to_tensor(input_image.resize((64, 64))) / 255.0
+    input_image = Image.open(cfg.image_path).convert("RGB")
+    input_tensor = pil_to_tensor(input_image.resize((model_config.algo.model.image_size, model_config.algo.model.image_size))) / 255.0
     input_video = input_tensor.unsqueeze(0).unsqueeze(0).to(model.device)
 
-    screen = pygame.display.set_mode((512, 512))
-    pygame.display.set_caption("LAM CoinRun")
-
-    display_image = pygame.image.fromstring(input_image.tobytes(), input_image.size, input_image.mode)
-    display_image = pygame.transform.scale(display_image, (512, 512))
-    screen.blit(display_image, (0, 0))
-    pygame.display.flip()
+    handler = GameHandler(model_config.algo.quantization.vq.model.codebook_size - 1)
+    handler.display_image(input_image)
 
     running = True
+    input_actions = None
 
     while(running):
         event = pygame.event.wait()
@@ -32,24 +65,30 @@ def main(cfg):
         if event.type == pygame.QUIT:
             running = False
 
-        elif event.type == pygame.KEYDOWN:
-            action = event.unicode
+        else:
+            action = handler.handle_event(event)
 
-            with torch.no_grad():
-                action_token = model.model.vq.project_out(model.model.vq.codebook[int(action)]).unsqueeze(0).unsqueeze(0).to(model.device)
-                output = model.model.decode(input_video, action_token)
-                output_image = (output[0][-1]*255).to('cpu', torch.uint8)
-                
-            output_image = to_pil_image(output_image)       
-            input_video = torch.cat((input_video, output[:, -1].unsqueeze(1)), dim=1)
+            if action is not None:
+                with torch.no_grad():
+                    action_token = model.model.vq.dequantize([action]).unsqueeze(0).to(model.device)
+                    if input_actions is None:
+                        input_actions = action_token
+                    else:
+                        input_actions = torch.cat((input_actions, action_token), dim=1)
 
-            if input_video.size(1) > 16:
-                input_video = input_video[:, 1:, :, :, :]
+                    output = model.model.decode(input_video, input_actions)
+                    output_image = (output[0][-1]*255).to('cpu', torch.uint8)
+                    
+                output_image = to_pil_image(output_image)       
 
-            display_image = pygame.image.fromstring(output_image.tobytes(), output_image.size, output_image.mode)
-            display_image = pygame.transform.scale(display_image, (512, 512))
-            screen.blit(display_image, (0, 0))
-            pygame.display.flip()
+                input_video = torch.cat((input_video, output[:, -1].unsqueeze(1)), dim=1)
+
+                if input_video.size(1) >= model_config.data.data_module.window_size:
+                    input_video = input_video[:, 1:, :, :, :]
+                    input_actions = input_actions[:, 1:, :]
+
+                handler.display_image(output_image)
+
 
 
 if __name__ == "__main__":
