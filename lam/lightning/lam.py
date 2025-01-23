@@ -92,7 +92,7 @@ class LAMTraining(L.LightningModule):
     def reconstruct_with_random_actions(self, batch):
         random_indices = torch.randint(0, self.model.vq.codebook_size, (batch.size(0), batch.size(1)-1), device=batch.device)
         random_action_tokens = self.model.vq.dequantize(random_indices) 
-        recon_video = self.model.decode(batch, random_action_tokens)
+        recon_video = self.model.decode(batch[:, :-1, :, :, :], random_action_tokens)
 
         return recon_video
     
