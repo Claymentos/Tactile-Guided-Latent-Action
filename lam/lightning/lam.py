@@ -17,7 +17,7 @@ class LAMTraining(L.LightningModule):
                  codebook_replace_freq: float = 0.05
                 ):
         super().__init__()
-        self.save_hyperparameters(ignore="model")
+        self.save_hyperparameters()
 
         self.model = model
         self.learning_rate = learning_rate

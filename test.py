@@ -43,11 +43,15 @@ class GameHandler:
 
 @hydra.main(config_path="conf", config_name="test")
 def main(cfg):
-    model_config = OmegaConf.load(cfg.model_config)
-    backbone = instantiate(model_config.algo.model)
+    if cfg.model_config:
+        # Necessary for retrocompatibility if the model architecture was not saved as a hyperparameter
+        model_config = OmegaConf.load(cfg.model_config)
+        backbone = instantiate(model_config.algo.model)
+        model = call(cfg.lightning_module, model=backbone)
+    else:
+        model = call(cfg.lightning_module)
 
-    model = call(cfg.lightning_module, model=backbone)
-    model.eval()
+    model.freeze()
 
     input_image = Image.open(cfg.image_path).convert("RGB")
     input_tensor = pil_to_tensor(input_image.resize((model_config.algo.model.image_size, model_config.algo.model.image_size))) / 255.0
@@ -58,6 +62,7 @@ def main(cfg):
 
     running = True
     input_actions = None
+    i = 0
 
     while(running):
         event = pygame.event.wait()
@@ -79,7 +84,11 @@ def main(cfg):
                     output = model.model.decode(input_video, input_actions)
                     output_image = (output[0][-1]*255).to('cpu', torch.uint8)
                     
-                output_image = to_pil_image(output_image)       
+                output_image = to_pil_image(output_image)   
+                
+                if cfg.save_images:
+                    output_image.save(f"model_output_{i}.png")
+                    i += 1
 
                 input_video = torch.cat((input_video, output[:, -1].unsqueeze(1)), dim=1)
 

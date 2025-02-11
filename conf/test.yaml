@@ -5,10 +5,13 @@ defaults:
   - data: coinrun
 
 image_path: /home/bmachado/Documents/Experiments/Datasets/Fractal/Example_2.png
+# image_path: /home/bmachado/Documents/Experiments/Datasets/LIBERO/images/spatial/image_0.png
 
-model_config: /home/bmachado/Documents/Experiments/LAM/runs/jean-zay/LAM/iy8iroi4/model_config.yaml
+model_config: /home/bmachado/Documents/Experiments/LAM/runs/jean-zay/LAM/osm1w9g8/model_config.yaml
+
+save_images: true
 
 lightning_module: 
   _target_: lam.lightning.lam.LAMTraining.load_from_checkpoint
   model: ${algo.model}
-  checkpoint_path: /home/bmachado/Documents/Experiments/LAM/runs/jean-zay/LAM/iy8iroi4/epoch=8-step=120000.ckpt
+  checkpoint_path: /home/bmachado/Documents/Experiments/LAM/runs/jean-zay/LAM/osm1w9g8/epoch=30-step=180000.ckpt
