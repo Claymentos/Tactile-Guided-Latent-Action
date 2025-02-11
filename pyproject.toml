@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lam"
+version = "0.1.0"
+dependencies = []
+
+[tool.setuptools]
+packages = ["lam"]
+
+[tool.setuptools.package-data]
+"lam" = ["conf/*.yaml"]
