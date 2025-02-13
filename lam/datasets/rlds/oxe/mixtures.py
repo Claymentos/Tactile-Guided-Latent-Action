@@ -206,6 +206,9 @@ OXE_NAMED_MIXTURES: Dict[str, List[Tuple[str, float]]] = {
     "libero_10_no_noops": [
         ("libero_10_no_noops", 1.0),
     ],
+    "libero_90_no_noops": [
+        ("libero_90_no_noops", 1.0),
+    ],
 
     # === LAM Mixtures ===
     "lam_fractal_libero": [
@@ -214,6 +217,7 @@ OXE_NAMED_MIXTURES: Dict[str, List[Tuple[str, float]]] = {
         ("libero_object_no_noops", 1.0),
         ("libero_goal_no_noops", 1.0),
         ("libero_10_no_noops", 1.0),
+        ("libero_90_no_noops", 1.0),
     ],
     "lam_fractal_half_libero_full": [
         ("fractal20220817_data", 0.5),
@@ -221,6 +225,7 @@ OXE_NAMED_MIXTURES: Dict[str, List[Tuple[str, float]]] = {
         ("libero_object_no_noops", 1.0),
         ("libero_goal_no_noops", 1.0),
         ("libero_10_no_noops", 1.0),
+        ("libero_90_no_noops", 1.0),
     ],
     "lam_fractal_quarter_libero_full": [
         ("fractal20220817_data", 0.25),
@@ -228,6 +233,7 @@ OXE_NAMED_MIXTURES: Dict[str, List[Tuple[str, float]]] = {
         ("libero_object_no_noops", 1.0),
         ("libero_goal_no_noops", 1.0),
         ("libero_10_no_noops", 1.0),
+        ("libero_90_no_noops", 1.0),
     ],
     "lam_fractal_half-quarter_libero_full": [
         ("fractal20220817_data", 0.125),
@@ -235,6 +241,7 @@ OXE_NAMED_MIXTURES: Dict[str, List[Tuple[str, float]]] = {
         ("libero_object_no_noops", 1.0),
         ("libero_goal_no_noops", 1.0),
         ("libero_10_no_noops", 1.0),
+        ("libero_90_no_noops", 1.0),
     ],
     "lam_fractal_libero_bridge": [
         ("fractal20220817_data", 0.25),
@@ -243,6 +250,7 @@ OXE_NAMED_MIXTURES: Dict[str, List[Tuple[str, float]]] = {
         ("libero_object_no_noops", 1.0),
         ("libero_goal_no_noops", 1.0),
         ("libero_10_no_noops", 1.0),
+        ("libero_90_no_noops", 1.0),
     ],
 }
 # fmt: on
