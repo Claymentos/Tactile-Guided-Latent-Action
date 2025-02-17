@@ -1,4 +1,10 @@
-"""Episode transforms for DROID dataset."""
+"""
+Adapted from: https://github.com/openvla/openvla/blob/main/prismatic/vla/datasets/rlds/oxe/utils/droid_utils.py
+
+droid_utils.py
+
+Episode transforms for DROID dataset
+"""
 
 from typing import Any, Dict
 

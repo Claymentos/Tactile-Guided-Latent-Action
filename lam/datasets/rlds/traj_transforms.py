@@ -1,4 +1,6 @@
 """
+Adapted from: https://github.com/openvla/openvla/blob/main/prismatic/vla/datasets/rlds/traj_transforms.py
+
 traj_transforms.py
 
 Contains trajectory transforms used in the orca data pipeline. Trajectory transforms operate on a dictionary

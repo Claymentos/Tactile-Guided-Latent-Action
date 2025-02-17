@@ -1,4 +1,6 @@
 """
+Adapted from: https://github.com/openvla/openvla/blob/main/prismatic/vla/datasets/rlds/oxe/materialize.py
+
 materialize.py
 
 Factory class for initializing Open-X Embodiment dataset kwargs and other parameters; provides and exports functions for

@@ -1,4 +1,6 @@
 """
+Adapted from: https://github.com/openvla/openvla/blob/main/prismatic/vla/datasets/rlds/obs_transforms.py
+
 obs_transforms.py
 
 Contains observation-level transforms used in the orca data pipeline.

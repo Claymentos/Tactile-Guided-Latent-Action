@@ -1,4 +1,6 @@
 """
+Adapted from: https://github.com/openvla/openvla/blob/main/prismatic/vla/datasets/rlds/oxe/configs.py
+
 configs.py
 
 Defines per-dataset configuration (kwargs) for each dataset in Open-X Embodiment.

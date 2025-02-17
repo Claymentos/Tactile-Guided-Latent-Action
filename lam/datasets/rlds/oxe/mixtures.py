@@ -1,4 +1,6 @@
 """
+Adapted from: https://github.com/openvla/openvla/blob/main/prismatic/vla/datasets/rlds/oxe/mixtures.py
+
 mixtures.py
 
 Defines a registry of dataset mixtures and weights for the Open-X Embodiment Datasets. Each dataset is associated with

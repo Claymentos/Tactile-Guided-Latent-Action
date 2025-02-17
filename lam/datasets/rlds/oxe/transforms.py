@@ -1,4 +1,6 @@
 """
+Adapted from: https://github.com/openvla/openvla/blob/main/prismatic/vla/datasets/rlds/oxe/transforms.py
+
 transforms.py
 
 Defines a registry of per-dataset standardization transforms for each dataset in Open-X Embodiment.

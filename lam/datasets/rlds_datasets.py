@@ -1,5 +1,7 @@
 """
-datasets.py
+Adapted from: https://github.com/openvla/openvla/blob/main/prismatic/vla/datasets/datasets.py
+
+rlds_datasets.py
 
 Lightweight PyTorch Dataset Definition for wrapping RLDS TFDS Pipeline
 """

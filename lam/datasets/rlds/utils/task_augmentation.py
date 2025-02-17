@@ -1,4 +1,6 @@
 """
+Adapted from: https://github.com/openvla/openvla/blob/main/prismatic/vla/datasets/rlds/utils/task_augmentation.py
+
 task_augmentation.py
 
 Contains basic logic for randomly zeroing out keys in the task specification.

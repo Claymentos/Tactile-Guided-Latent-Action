@@ -1,4 +1,6 @@
 """
+Adapted from: https://github.com/openvla/openvla/blob/main/prismatic/vla/datasets/rlds/dataset.py
+
 dataset.py
 
 Core interface script for configuring and initializing RLDS datasets.
