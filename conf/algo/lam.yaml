@@ -1,9 +1,9 @@
 model:
+  _target_: lam.lam.LAM
   model_dim: 512
   patch_size: 16
   image_size: 128
   channels: 3
-  _target_: lam.lam.LAM
   encoder:
     _target_: lam.st.STTransformer
     model_dim: ${algo.model.model_dim}

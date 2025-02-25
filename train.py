@@ -1,3 +1,4 @@
+import os
 import torch
 import hydra
 
@@ -20,7 +21,10 @@ def train(config):
     trainer = instantiate(config.trainer)
     trainer.logger.log_hyperparams(config)
 
-    with open(f"{trainer.logger.experiment.dir}/model_config.yaml", "w") as f:
+    trainer.checkpoint_callback.dirpath = f"{trainer.logger.experiment.dir}/../checkpoints/"
+    os.makedirs(trainer.checkpoint_callback.dirpath, exist_ok=True)
+
+    with open(f"{trainer.logger.experiment.dir}/../checkpoints/model_config.yaml", "w") as f:
         OmegaConf.save(config, f)
 
     trainer.fit(model=lightning_module, datamodule=data_module, ckpt_path=config.checkpoint_path)

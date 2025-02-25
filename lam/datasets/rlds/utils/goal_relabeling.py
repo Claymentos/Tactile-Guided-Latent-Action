@@ -1,4 +1,6 @@
 """
+Adapted from: https://github.com/openvla/openvla/blob/main/prismatic/vla/datasets/rlds/utils/goal_relabeling.py
+
 goal_relabeling.py
 
 Contains simple goal relabeling logic for BC use-cases where rewards and next_observations are not required.

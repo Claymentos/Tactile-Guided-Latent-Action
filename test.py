@@ -43,21 +43,16 @@ class GameHandler:
 
 @hydra.main(config_path="conf", config_name="test")
 def main(cfg):
-    if cfg.model_config:
-        # Necessary for retrocompatibility if the model architecture was not saved as a hyperparameter
-        model_config = OmegaConf.load(cfg.model_config)
-        backbone = instantiate(model_config.algo.model)
-        model = call(cfg.lightning_module, model=backbone)
-    else:
-        model = call(cfg.lightning_module)
-
+    model_config = OmegaConf.load(cfg.model_config)
+    backbone = instantiate(model_config.algo.model)
+    model = call(cfg.lightning_module, model=backbone)
     model.freeze()
 
     input_image = Image.open(cfg.image_path).convert("RGB")
     input_tensor = pil_to_tensor(input_image.resize((model_config.algo.model.image_size, model_config.algo.model.image_size))) / 255.0
     input_video = input_tensor.unsqueeze(0).unsqueeze(0).to(model.device)
 
-    handler = GameHandler(model_config.algo.quantization.vq.model.codebook_size - 1)
+    handler = GameHandler(model.model.vq.codebook_size - 1)
     handler.display_image(input_image)
 
     running = True

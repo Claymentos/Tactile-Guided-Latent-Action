@@ -17,7 +17,7 @@ class LAMTraining(L.LightningModule):
                  codebook_replace_freq: float = 0.05
                 ):
         super().__init__()
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=['model'])
 
         self.model = model
         self.learning_rate = learning_rate
@@ -35,7 +35,7 @@ class LAMTraining(L.LightningModule):
         recon_loss, commit_loss, recon_video, indices = self.model(batch)
 
         loss = recon_loss + commit_loss     # Add VQ-VAE loss
-                                            # Check if it is necessary with FSQ
+                                            # Only needed for VQ
 
         self.log("train_loss", loss)
         self.log("train_recon_loss", recon_loss)
@@ -95,7 +95,6 @@ class LAMTraining(L.LightningModule):
         recon_video = self.model.decode(batch[:, :-1, :, :, :], random_action_tokens)
 
         return recon_video
-    
 
     def imagine_with_random_actions(self, batch, times=4):
         x = batch[:, 0].unsqueeze(1)
@@ -118,10 +117,8 @@ class LAMTraining(L.LightningModule):
         ssim_score = ssim(rearrange(recon_video, 'b t c h w -> (b t) c h w'), rearrange(batch[:, 1:], 'b t c h w -> (b t) c h w'))
         self.log(f"{prefix}_ssim", ssim_score)
 
-        codebook_usage, codebook_entropy, codebook_cv = self.codebook_usage(indices)
+        codebook_usage = self.codebook_usage(indices)
         self.log(f"{prefix}_codebook_usage", codebook_usage)
-        self.log(f"{prefix}_codebook_entropy", codebook_entropy)
-        self.log(f"{prefix}_codebook_cv", codebook_cv)
 
         distinctiveness_cosine = self.distinctiveness_cosine(self.model.vq.get_codebook())
         self.log(f"{prefix}_distinctiveness_cosine", distinctiveness_cosine)
@@ -138,19 +135,9 @@ class LAMTraining(L.LightningModule):
         total_counts[values] = counts
 
         codebook_usage =  torch.mean((total_counts != 0).float())
-        codebook_entropy = self.entropy(total_counts)
-        codebook_cv = self.coefficient_of_variation(total_counts)
 
-        return codebook_usage, codebook_entropy, codebook_cv
-    
-    def entropy(self, histogram):
-        histogram = histogram + 1e-10                   # Avoid log(0)
-        probabilities = histogram / histogram.sum()
-        return -torch.sum(probabilities * torch.log(probabilities))
-    
-    def  coefficient_of_variation(self, histogram):
-        return histogram.float().std() / histogram.float().mean()
-    
+        return codebook_usage
+        
     def distinctiveness_cosine(self, codes):
         '''Measure how distinct the codes are using cosine similarity'''
         normalized_vectors = codes / torch.norm(codes, dim=1, keepdim=True)
