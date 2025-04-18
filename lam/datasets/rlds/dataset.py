@@ -566,8 +566,8 @@ def make_interleaved_dataset(
     dataset: dl.DLataset = dl.DLataset.sample_from_datasets(datasets, sample_weights)
 
     # Validation =>> fix a single shuffle buffer of data and cache it in RAM; prevents gradual memory increase!
-    if not train:
-        dataset = dataset.take(shuffle_buffer_size).cache()
+    # if not train:
+    #     dataset = dataset.take(shuffle_buffer_size).cache()
 
     # Shuffle the Dataset
     #   =>> IMPORTANT :: Shuffle AFTER .cache(), or else memory will still leak!
