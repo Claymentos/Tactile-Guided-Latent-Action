@@ -192,6 +192,15 @@ OXE_NAMED_MIXTURES: Dict[str, List[Tuple[str, float]]] = {
         ("droid", 0.06),
     ],
 
+    "oxe_magic_soup_memory": [
+        ("fractal20220817_data", 0.5),                # Google RT-1 Robot Data (Large-Scale)
+        ("kuka", 0.5),
+        ("bridge_orig", 1.0),                                   # Original Version of Bridge V2 from Project Website
+        ("bc_z", 0.2),                                          
+        ("fmb_dataset", 1.0),
+        ("droid", 0.1),
+    ],
+
     "oxe_magic_soup_liris": [
         ("fractal20220817_data", 0.54087122203),                # Google RT-1 Robot Data (Large-Scale)
         ("kuka", 0.8341046294),
