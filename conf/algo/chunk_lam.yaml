@@ -1,0 +1,31 @@
+model:
+  _target_: lam.lam.ChunkLAM
+  model_dim: 512
+  patch_size: 16
+  image_size: 128
+  channels: 3
+  encoder:
+    _target_: lam.st.STTransformer
+    model_dim: ${algo.model.model_dim}
+    n_layer: 18
+    num_spatial_heads: 8
+    num_temporal_heads: ${algo.model.encoder.num_spatial_heads}
+    dropout: 0.1
+    image_size: ${algo.model.image_size}
+    patch_size: ${algo.model.patch_size}
+    channels: ${algo.model.channels}
+    max_seq_len: 16
+    add_readout_token: true
+  decoder:
+    _target_: lam.st.STTransformer
+    model_dim: ${algo.model.model_dim}
+    n_layer: ${algo.model.encoder.n_layer}
+    num_spatial_heads: ${algo.model.encoder.num_spatial_heads}
+    num_temporal_heads: ${algo.model.decoder.num_spatial_heads}
+    dropout: ${algo.model.encoder.dropout}
+    image_size: ${algo.model.image_size}
+    patch_size: ${algo.model.patch_size}
+    channels: ${algo.model.channels}
+    max_seq_len: ${algo.model.encoder.max_seq_len}
+    add_readout_token: false
+  vq: ${algo.quantization.vq}
