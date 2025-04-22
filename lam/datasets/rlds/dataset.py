@@ -230,10 +230,7 @@ def make_dataset_from_rlds(
         dataset_statistics["action"]["mask"] = np.array(action_normalization_mask)
 
     # construct the dataset
-    if "val" not in builder.info.splits:
-        split = "train[:95%]" if train else "train[95%:]"
-    else:
-        split = "train" if train else "val"
+    split = "train[:99.9%]" if train else "train[0.1%:]"
 
     dataset = dl.DLataset.from_rlds(builder, split=split, shuffle=shuffle, num_parallel_reads=num_parallel_reads)
 
@@ -566,8 +563,8 @@ def make_interleaved_dataset(
     dataset: dl.DLataset = dl.DLataset.sample_from_datasets(datasets, sample_weights)
 
     # Validation =>> fix a single shuffle buffer of data and cache it in RAM; prevents gradual memory increase!
-    # if not train:
-    #     dataset = dataset.take(shuffle_buffer_size).cache()
+    if not train:
+        dataset = dataset.take(shuffle_buffer_size).cache()
 
     # Shuffle the Dataset
     #   =>> IMPORTANT :: Shuffle AFTER .cache(), or else memory will still leak!
