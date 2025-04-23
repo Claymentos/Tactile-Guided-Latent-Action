@@ -33,10 +33,24 @@ class ImageTransform(Protocol):
 
 
 class RLDSBatchTransform:
+    def __init__(self, load_camera_views: Tuple[str], randomize_view_order: bool = False) -> None:
+        self.is_multiview = len(load_camera_views) > 1
+        self.randomize_view_order = randomize_view_order
+
     def __call__(self, rlds_batch: Dict[str, Any]) -> Dict[str, Any]:
         """Converts a RLDS batch to a format suitable for training a model."""         
         frames = rlds_batch["observation"]["image_primary"]
         sample = rearrange(torch.tensor(frames, dtype=torch.float32), "t h w c -> t c h w") / 255.0
+
+        if self.is_multiview:
+            frames_2 = rlds_batch["observation"]["image_secondary"]
+            sample_2 = rearrange(torch.tensor(frames_2, dtype=torch.float32), "t h w c -> t c h w") / 255.0
+
+            if self.randomize_view_order:
+                if np.random.rand() < 0.5:
+                    sample, sample_2 = sample_2, sample
+
+            sample = (sample, sample_2)
 
         return sample
     
@@ -52,6 +66,7 @@ class RLDSDataset(IterableDataset):
         train: bool = True,
         image_aug: bool = False,
         window_size: int = 1,
+        load_camera_views: Tuple[str] = ("primary",),
     ) -> None:
         """Lightweight wrapper around RLDS TFDS Pipeline for use with PyTorch Data Loaders."""
         self.data_root_dir, self.data_mix, self.batch_transform = data_root_dir, data_mix, batch_transform
@@ -68,7 +83,7 @@ class RLDSDataset(IterableDataset):
             self.data_root_dir,
             mixture_spec,
             load_images=True,
-            load_camera_views=("primary",),
+            load_camera_views=load_camera_views,
             load_depth=False,
             load_proprio=False,
             load_language=False,

@@ -1,6 +1,6 @@
 data_module: 
   _target_: lam.lightning.rlds.RLDSModule
-  data_dir: /home/bmachado/Documents/Experiments/Datasets/DROID
+  data_dir: null
   batch_size: 64
   validation: true
   image_size: ${algo.model.image_size}
@@ -9,3 +9,5 @@ data_module:
   image_aug: False
   window_size: 8
   data_mix: droid
+  multiview: false
+  randomize_view_order: false

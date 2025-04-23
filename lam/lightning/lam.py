@@ -30,9 +30,16 @@ class LAMTraining(L.LightningModule):
         '''
         arguments:
         batch: torch.Tensor, shape: (batch_size, seq_len, channels, height, width)
+                or Tuple[torch.Tensor, torch.Tensor], shape of each: (batch_size, seq_len, channels, height, width)
         '''
         batch = self.preprocess(batch)
-        recon_loss, commit_loss, recon_video, indices = self.model(batch)
+
+        if isinstance(batch, torch.Tensor):
+            target_view = batch                         # Traditional case, source view is equal to target view
+            recon_loss, commit_loss, recon_video, indices = self.model(batch)
+        else:
+            source_view, target_view = batch            # Multiview case, source view is different from target view
+            recon_loss, commit_loss, recon_video, indices = self.model(source_view, target_view)
 
         loss = recon_loss + commit_loss     # Add VQ-VAE loss
                                             # Only needed for VQ
@@ -42,7 +49,7 @@ class LAMTraining(L.LightningModule):
         self.log("train_commit_loss", commit_loss)
 
         with torch.no_grad():
-            self.compute_metrics(batch, recon_video, indices, prefix="train")
+            self.compute_metrics(target_view, recon_video, indices, prefix="train")
 
         self.replace_unused_codebook_entries()      # Only used in NSVQ
 
@@ -55,7 +62,13 @@ class LAMTraining(L.LightningModule):
         batch: torch.Tensor, shape: (batch_size, seq_len, channels, height, width)
         '''
         batch = self.preprocess(batch)
-        recon_loss, commit_loss, recon_video, indices = self.model(batch)
+        
+        if isinstance(batch, torch.Tensor):
+            target_view = batch                         # Traditional case, source view is equal to target view
+            recon_loss, commit_loss, recon_video, indices = self.model(batch)
+        else:
+            source_view, target_view = batch            # Multiview case, source view is different from target view
+            recon_loss, commit_loss, recon_video, indices = self.model(source_view, target_view)
 
         loss = recon_loss + commit_loss
 
@@ -63,18 +76,18 @@ class LAMTraining(L.LightningModule):
         self.log("val_recon_loss", recon_loss)
         self.log("val_commit_loss", commit_loss)
 
-        random_reconstruction = self.compute_metrics(batch, recon_video, indices, prefix="val", return_random_reconstruction=True)
+        random_reconstruction = self.compute_metrics(target_view, recon_video, indices, prefix="val", return_random_reconstruction=True)
 
-        imagination = self.imagine_with_random_actions(batch, times=min(4, recon_video.size(1)))
-        delta_psnr = self.psnr(batch[:, 1:5], recon_video[:, :4]) - self.psnr(batch[:, 1:5], imagination)
+        imagination = self.imagine_with_random_actions(target_view, times=min(4, recon_video.size(1)))
+        delta_psnr = self.psnr(target_view[:, 1:5], recon_video[:, :4]) - self.psnr(target_view[:, 1:5], imagination)
         self.log("val_delta_psnr_imagination_t=4", delta_psnr)
 
         if batch_idx == 0:
             x = [make_grid([
-                (batch[0][t+1]*255).to('cpu', torch.uint8), (recon_video[0][t]*255).to('cpu', torch.uint8), (imagination[0][t]*255).to('cpu', torch.uint8), (random_reconstruction[0][t]*255).to('cpu', torch.uint8),
-                (batch[1][t+1]*255).to('cpu', torch.uint8), (recon_video[1][t]*255).to('cpu', torch.uint8), (imagination[1][t]*255).to('cpu', torch.uint8), (random_reconstruction[1][t]*255).to('cpu', torch.uint8),
-                (batch[2][t+1]*255).to('cpu', torch.uint8), (recon_video[2][t]*255).to('cpu', torch.uint8), (imagination[2][t]*255).to('cpu', torch.uint8), (random_reconstruction[2][t]*255).to('cpu', torch.uint8),
-                (batch[3][t+1]*255).to('cpu', torch.uint8), (recon_video[3][t]*255).to('cpu', torch.uint8), (imagination[3][t]*255).to('cpu', torch.uint8), (random_reconstruction[3][t]*255).to('cpu', torch.uint8)
+                (target_view[0][t+1]*255).to('cpu', torch.uint8), (recon_video[0][t]*255).to('cpu', torch.uint8), (imagination[0][t]*255).to('cpu', torch.uint8), (random_reconstruction[0][t]*255).to('cpu', torch.uint8),
+                (target_view[1][t+1]*255).to('cpu', torch.uint8), (recon_video[1][t]*255).to('cpu', torch.uint8), (imagination[1][t]*255).to('cpu', torch.uint8), (random_reconstruction[1][t]*255).to('cpu', torch.uint8),
+                (target_view[2][t+1]*255).to('cpu', torch.uint8), (recon_video[2][t]*255).to('cpu', torch.uint8), (imagination[2][t]*255).to('cpu', torch.uint8), (random_reconstruction[2][t]*255).to('cpu', torch.uint8),
+                (target_view[3][t+1]*255).to('cpu', torch.uint8), (recon_video[3][t]*255).to('cpu', torch.uint8), (imagination[3][t]*255).to('cpu', torch.uint8), (random_reconstruction[3][t]*255).to('cpu', torch.uint8)
             ], nrow=4) for t in range(imagination.size(1))]
 
             x = torch.stack(x, dim=0)
