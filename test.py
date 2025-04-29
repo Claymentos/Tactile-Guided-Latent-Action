@@ -43,7 +43,10 @@ class GameHandler:
 
 @hydra.main(config_path="conf", config_name="test")
 def main(cfg):
-    model_config = OmegaConf.load(cfg.model_config)
+    if (model_config_path := cfg.get("model_config")) is None:
+        model_config_path = "/".join(cfg.lightning_module.checkpoint_path.split("/")[0:-1]) + "/model_config.yaml"
+
+    model_config = OmegaConf.load(model_config_path)
     backbone = instantiate(model_config.algo.model)
     model = call(cfg.lightning_module, model=backbone)
     model.freeze()
@@ -70,7 +73,11 @@ def main(cfg):
 
             if action is not None:
                 with torch.no_grad():
-                    action_token = model.model.vq.dequantize([action]).unsqueeze(0).to(model.device)
+                    if hasattr(model.model.vq, "dequantize"): 
+                        action_token = model.model.vq.dequantize([action]).unsqueeze(0).to(model.device)
+                    else:
+                        action_token = model.model.vq.project_out(model.model.vq.codebook[[action]]).unsqueeze(0)                  # Backward compatability
+                    
                     if input_actions is None:
                         input_actions = action_token
                     else:
