@@ -58,7 +58,7 @@ def main(cfg):
     model = call(cfg.lightning_module, model=backbone)
     model.freeze()
 
-    data_module = instantiate(cfg.data.data_module, data_mix="fractal_100", window_size=model.model.encoder.temporal_pos_embedding.num_embeddings, add_actions=True)
+    data_module = instantiate(cfg.data.data_module, window_size=model.model.encoder.temporal_pos_embedding.num_embeddings, add_actions=True)
     dataloader = data_module.train_dataloader()
 
     latent_to_real_actions = {"all_contexts": None,
@@ -103,10 +103,10 @@ def main(cfg):
             break
 
 
-    with open(f"latent_to_real_actions_{cfg.lightning_module.checkpoint_path.split('/')[-2]}_fractal_100.pkl", "wb") as file:
+    with open(f"latent_to_real_actions_{cfg.lightning_module.checkpoint_path.split('/')[-2]}_{cfg.data.data_module.data_mix}.pkl", "wb") as file:
         pickle.dump(latent_to_real_actions, file)
 
-    with open(f"raw_actions_{cfg.lightning_module.checkpoint_path.split('/')[-2]}_fractal_100.pkl", "wb") as file:
+    with open(f"raw_actions_{cfg.lightning_module.checkpoint_path.split('/')[-2]}_{cfg.data.data_module.data_mix}.pkl", "wb") as file:
         pickle.dump(raw_actions, file)
 
     print("Done!")
