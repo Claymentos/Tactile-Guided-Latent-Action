@@ -18,6 +18,7 @@ class RLDSModule(L.LightningDataModule):
             data_mix: str = "droid",
             multiview: bool = False,
             randomize_view_order: bool = False,
+            add_actions: bool = False,
     ):
         super().__init__()
         self.data_dir = data_dir
@@ -31,9 +32,10 @@ class RLDSModule(L.LightningDataModule):
         self.window_size = window_size
         self.load_camera_views = ("primary",) if not multiview else ("primary", "secondary")
         self.randomize_view_order = randomize_view_order
+        self.add_actions = add_actions
 
     def build_dataset(self, train=True):
-        batch_transform = RLDSBatchTransform(self.load_camera_views, self.randomize_view_order)
+        batch_transform = RLDSBatchTransform(self.load_camera_views, self.randomize_view_order, self.add_actions)
 
         cls = RLDSDataset if not self.episodic else EpisodicRLDSDataset
 

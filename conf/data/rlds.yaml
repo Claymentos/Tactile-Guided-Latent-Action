@@ -11,3 +11,4 @@ data_module:
   data_mix: droid
   multiview: false
   randomize_view_order: false
+  add_actions: false

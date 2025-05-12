@@ -33,9 +33,10 @@ class ImageTransform(Protocol):
 
 
 class RLDSBatchTransform:
-    def __init__(self, load_camera_views: Tuple[str], randomize_view_order: bool = False) -> None:
+    def __init__(self, load_camera_views: Tuple[str], randomize_view_order: bool = False, add_actions: bool = False) -> None:
         self.is_multiview = len(load_camera_views) > 1
         self.randomize_view_order = randomize_view_order
+        self.add_actions = add_actions
 
     def __call__(self, rlds_batch: Dict[str, Any]) -> Dict[str, Any]:
         """Converts a RLDS batch to a format suitable for training a model."""         
@@ -51,6 +52,11 @@ class RLDSBatchTransform:
                     sample, sample_2 = sample_2, sample
 
             sample = (sample, sample_2)
+
+        if self.add_actions:
+            actions = rlds_batch["action"]
+            actions = torch.tensor(actions, dtype=torch.float32)
+            sample = (sample, actions)
 
         return sample
     
