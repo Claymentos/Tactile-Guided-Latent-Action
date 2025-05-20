@@ -34,13 +34,13 @@ class LAMTraining(L.LightningModule):
         '''
         batch = self.preprocess(batch)
 
-        if isinstance(batch, torch.Tensor):
-            target_view = batch                         # Traditional case, source view is equal to target view
-            recon_loss, commit_loss, recon_video, indices = self.model(batch)
-        else:
-            source_view, target_view = batch            # Multiview case, source view is different from target view
+        if "images_secondary" in batch.keys():
+            source_view, target_view = batch["images"], batch["images_secondary"]           # Multiview case, source view is different from target view
             recon_loss, commit_loss, recon_video, indices = self.model(source_view, target_view)
-
+        else:
+            target_view = batch["images"]                                                   # Traditional case, source view is equal to target view
+            recon_loss, commit_loss, recon_video, indices = self.model(target_view)
+            
         loss = recon_loss + commit_loss     # Add VQ-VAE loss
                                             # Only needed for VQ
 
@@ -63,12 +63,12 @@ class LAMTraining(L.LightningModule):
         '''
         batch = self.preprocess(batch)
         
-        if isinstance(batch, torch.Tensor):
-            target_view = batch                         # Traditional case, source view is equal to target view
-            recon_loss, commit_loss, recon_video, indices = self.model(batch)
-        else:
-            source_view, target_view = batch            # Multiview case, source view is different from target view
+        if "images_secondary" in batch.keys():
+            source_view, target_view = batch["images"], batch["images_secondary"]           # Multiview case, source view is different from target view
             recon_loss, commit_loss, recon_video, indices = self.model(source_view, target_view)
+        else:
+            target_view = batch["images"]                                                   # Traditional case, source view is equal to target view
+            recon_loss, commit_loss, recon_video, indices = self.model(target_view)
 
         loss = recon_loss + commit_loss
 
@@ -97,8 +97,8 @@ class LAMTraining(L.LightningModule):
         return loss
     
     def preprocess(self, batch):
-        if isinstance(batch, dict):
-            batch = torch.flip(batch['obs']['agentview_rgb'], dims=(-2,)) / 255.0           # Images on Libero are upside down
+        if 'obs' in batch.keys():
+            batch["images"] = torch.flip(batch['obs']['agentview_rgb'], dims=(-2,)) / 255.0           # Images on Libero are upside down
 
         return batch
 
