@@ -3,7 +3,7 @@ data_module:
   data_dir: null
   batch_size: 64
   validation: true
-  image_size: ${algo.model.image_size}
+  image_size: ${algo.image_encoder.model.image_size}
   shuffle_buffer_size: 100_000
   episodic: False
   image_aug: False

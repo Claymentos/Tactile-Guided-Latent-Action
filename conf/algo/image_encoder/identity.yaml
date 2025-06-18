@@ -1,0 +1,6 @@
+model:
+  _target_: lam.image_encoder.identity.Identity
+  model_dim: 512
+  image_size: 128
+  patch_size: 16
+  channels: 3

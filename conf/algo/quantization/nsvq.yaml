@@ -2,7 +2,7 @@ vq:
   _target_: lam.quantization.wrappers.NSVQ
   model:
     _target_: lam.quantization.nsvq.NSVQ
-    input_dim: ${algo.model.model_dim}
+    input_dim: ${algo.image_encoder.model.model_dim}
     codebook_size: 8
     codebook_dim: 32
     discarding_threshold: 0.01 

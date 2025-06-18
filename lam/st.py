@@ -68,7 +68,6 @@ class STTransformer(nn.Module):
                  dropout,
                  image_size, 
                  patch_size, 
-                 channels=3, 
                  max_seq_len=32,
                  add_readout_token=False):
         super().__init__()
@@ -77,14 +76,6 @@ class STTransformer(nn.Module):
         assert image_height % patch_height == 0 and image_width % patch_width == 0, 'Image dimensions must be divisible by the patch size.'
 
         num_patches = (image_height // patch_height) * (image_width // patch_width)
-        patch_dim = channels * patch_height * patch_width
-
-        self.to_patch_embedding = nn.Sequential(
-            Rearrange('b t c (h p1) (w p2) -> b t (h w) (p1 p2 c)', p1=patch_height, p2=patch_width),
-            nn.LayerNorm(patch_dim),
-            nn.Linear(patch_dim, model_dim),
-            nn.LayerNorm(model_dim),
-        )
 
         self.add_readout_token = add_readout_token
 
@@ -106,9 +97,8 @@ class STTransformer(nn.Module):
     def forward(self, x, actions=None):
         '''
         arguments:
-        x: torch.Tensor, shape (batch_size, seq_len, channels, height, width) | videos normalized between 0 and 1
+        x: torch.Tensor, shape (batch_size, seq_len, num_patches, model_dim)
         '''
-        x = self.to_patch_embedding(x)
         b, t, p, f = x.shape
 
         if self.add_readout_token:
