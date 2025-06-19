@@ -78,7 +78,7 @@ class LAMTraining(L.LightningModule):
 
         random_reconstruction = self.compute_metrics(target_view, recon_video, features, recon_features, indices, prefix="val", return_random_reconstruction=True)
 
-        if batch_idx == 0:
+        if batch_idx == 0 and random_reconstruction is not None:
             x = [make_grid([
                 (target_view[0][t+1]*255).to('cpu', torch.uint8), (recon_video[0][t]*255).to('cpu', torch.uint8), (random_reconstruction[0][t]*255).to('cpu', torch.uint8),
                 (target_view[1][t+1]*255).to('cpu', torch.uint8), (recon_video[1][t]*255).to('cpu', torch.uint8), (random_reconstruction[1][t]*255).to('cpu', torch.uint8),
@@ -102,7 +102,7 @@ class LAMTraining(L.LightningModule):
         random_indices = torch.randint(0, self.model.vq.codebook_size, (batch.size(0), batch.size(1)-1), device=batch.device)
         random_action_tokens = self.model.vq.dequantize(random_indices) 
         recon_features = self.model.decode(features[:, :-1], random_action_tokens)
-        recon_video = self.model.image_encoder._post_process(recon_features)  
+        recon_video = self.model.feature_extractor._post_process(recon_features)  
 
         return recon_video
 
@@ -137,7 +137,7 @@ class LAMTraining(L.LightningModule):
         distinctiveness_cosine = self.distinctiveness_cosine(self.model.vq.get_codebook())
         self.log(f"{prefix}_distinctiveness_cosine", distinctiveness_cosine)
 
-        if return_random_reconstruction:
+        if return_random_reconstruction and recon_video is not None:
             return imagination
 
     def psnr(self, image, reconstruction):

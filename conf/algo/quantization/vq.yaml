@@ -2,7 +2,7 @@ vq:
   _target_: lam.quantization.wrappers.VQ
   model:
     _target_: vector_quantize_pytorch.VectorQuantize
-    dim: ${algo.image_encoder.model.model_dim}                       
+    dim: ${algo.feature_extractor.model.model_dim}                       
     codebook_size: 8
     use_cosine_sim: true 
     commitment_weight: 0.25

@@ -7,12 +7,12 @@ class LAM(nn.Module):
                  encoder,
                  decoder,
                  vq,
-                 image_encoder):
+                 feature_extractor):
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
         self.vq = vq
-        self.image_encoder = image_encoder
+        self.feature_extractor = feature_extractor
 
 
     def forward(self, x):
@@ -20,14 +20,14 @@ class LAM(nn.Module):
         arguments:
         x: torch.Tensor, shape (batch_size, seq_len, channels, height, width)
         '''
-        features = self.image_encoder(x)                                            # Extract image features or simply patchfy and project if working in image space
+        features = self.feature_extractor(x)                                            # Extract image features or simply patchfy and project if working in image space
         
         logits, readout = self.encode(features)
         readout = readout[:, 1:, :]                                                 # Ignore the first action token, it doesn't represent any transition
         action_tokens, indices, commit_loss = self.vq.quantize(readout)
 
         logits = self.decode(features[:, :-1], action_tokens)                                             # Ignore the last frame, since there is no target for it
-        recon_loss, recon_video = self.image_encoder.compute_loss(logits, x[:, 1:], features[:, 1:])      # The first frame of x is not used as a target
+        recon_loss, recon_video = self.feature_extractor.compute_loss(logits, x[:, 1:], features[:, 1:])      # The first frame of x is not used as a target
         
         return recon_loss, commit_loss, indices, features, logits, recon_video
 

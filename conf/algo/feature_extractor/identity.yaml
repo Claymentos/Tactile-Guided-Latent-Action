@@ -1,5 +1,5 @@
 model:
-  _target_: lam.image_encoder.identity.Identity
+  _target_: lam.feature_extractor.base.Identity
   model_dim: 512
   image_size: 128
   patch_size: 16

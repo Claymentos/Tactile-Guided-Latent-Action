@@ -2,9 +2,30 @@ import torch
 
 from torch import nn
 from einops.layers.torch import Rearrange
+from abc import ABC, abstractmethod
 
 
-class Identity(torch.nn.Module):
+class Extractor(ABC, torch.nn.Module):
+    '''
+    Lightweight interface for feature extractor models
+    '''
+    def __init__(self):
+        super().__init__()
+
+    @abstractmethod
+    def forward(self, x):
+        pass
+
+    @abstractmethod
+    def _post_process(self, indices):
+        pass
+
+    @abstractmethod
+    def compute_loss(self):
+        pass
+
+
+class Identity(Extractor):
     """
     Returns patchified video projected to model_dim, normalized with layer normalization.
     """
