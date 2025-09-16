@@ -44,7 +44,7 @@ class GameHandler:
 @hydra.main(config_path="conf", config_name="test")
 def main(cfg):
     if (model_config_path := cfg.get("model_config")) is None:
-        model_config_path = "/".join(cfg.lightning_module.checkpoint_path.split("/")[0:-1]) + "/model_config.yaml"
+        model_config_path = "/".join(cfg.lightning_module.checkpoint_path.split("/")[0:-1]) + f"/model_config.yaml{cfg.lightning_module.checkpoint_path.split('.ckpt')[-1]}"
 
     model_config = OmegaConf.load(model_config_path)
     backbone = instantiate(model_config.algo.model)
@@ -52,7 +52,7 @@ def main(cfg):
     model.freeze()
 
     input_image = Image.open(cfg.image_path).convert("RGB")
-    input_tensor = pil_to_tensor(input_image.resize((model_config.algo.model.image_size, model_config.algo.model.image_size))) / 255.0
+    input_tensor = pil_to_tensor(input_image.resize((model_config.algo.model.feature_extractor.image_size, model_config.algo.model.feature_extractor.image_size))) / 255.0
     input_video = input_tensor.unsqueeze(0).unsqueeze(0).to(model.device)
 
     handler = GameHandler(model.model.vq.codebook_size - 1)
@@ -83,7 +83,9 @@ def main(cfg):
                     else:
                         input_actions = torch.cat((input_actions, action_token), dim=1)
 
-                    output = model.model.decode(input_video, input_actions)
+                    input_features = model.model.feature_extractor(input_video)
+                    output = model.model.decode(input_features, input_actions)
+                    output = model.model.feature_extractor._post_process(output)
                     output_image = (output[0][-1]*255).to('cpu', torch.uint8)
                     
                 output_image = to_pil_image(output_image)   

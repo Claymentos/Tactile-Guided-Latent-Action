@@ -16,7 +16,7 @@ class DinoV2(Extractor):
                  model_dim,
                  channels=3):
         super().__init__()
-        self.feature_extractor = torch.hub.load('facebookresearch/dinov2', model_id).cuda()
+        self.feature_extractor = torch.hub.load('facebookresearch/dinov2', model_id)
 
         # Freeze the image encoder parameters
         for param in self.feature_extractor.parameters():
