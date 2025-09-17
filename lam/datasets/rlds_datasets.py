@@ -78,6 +78,7 @@ class RLDSDataset(IterableDataset):
         window_size: int = 1,
         load_camera_views: Tuple[str] = ("primary",),
         load_proprioception: bool = False,
+        skip_based_on_frequency: bool = False,
     ) -> None:
         """Lightweight wrapper around RLDS TFDS Pipeline for use with PyTorch Data Loaders."""
         self.data_root_dir, self.data_mix, self.batch_transform = data_root_dir, data_mix, batch_transform
@@ -106,6 +107,7 @@ class RLDSDataset(IterableDataset):
                 future_action_window_size=0,                        # For action chunking
                 skip_unlabeled=False,                               # Skip trajectories without language labels
                 goal_relabeling_strategy="uniform",                 # Goals are currently unused
+                skip_based_on_frequency=skip_based_on_frequency,    # Whether to load only a pair of frames one second apart or not, window_size will be ignored if True
             ),
             frame_transform_kwargs=dict(
                 resize_size=resize_resolution,

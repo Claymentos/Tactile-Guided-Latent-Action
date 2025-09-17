@@ -13,7 +13,7 @@ from typing import Dict
 import tensorflow as tf
 
 
-def chunk_act_obs(traj: Dict, window_size: int, future_action_window_size: int = 0) -> Dict:
+def chunk_act_obs(traj: Dict, window_size: int, future_action_window_size: int = 0, skip_based_on_frequency: bool = False) -> Dict:
     """
     Chunks actions and observations into the given window_size.
 
@@ -23,22 +23,42 @@ def chunk_act_obs(traj: Dict, window_size: int, future_action_window_size: int =
     action, and `future_action_window_size` actions from the future. "pad_mask" is added to "observation" and
     indicates whether an observation should be considered padding (i.e. if it had come from a timestep
     before the start of the trajectory).
+    If skip_based_on_frequency is True, window_size will be set according to the frequency of the dataset and 
+    only 2 frames will be loaded, one second apart.
     """
     traj_len = tf.shape(traj["action"])[0]
     action_dim = traj["action"].shape[-1]
-    chunk_indices = tf.broadcast_to(tf.range(-window_size + 1, 1), [traj_len, window_size]) + tf.broadcast_to(
-        tf.range(traj_len)[:, None], [traj_len, window_size]
-    )
 
-    action_chunk_indices = tf.broadcast_to(
-        tf.range(-window_size + 1, 1 + future_action_window_size),
-        [traj_len, window_size + future_action_window_size],
-    ) + tf.broadcast_to(
-        tf.range(traj_len)[:, None],
-        [traj_len, window_size + future_action_window_size],
-    )
+    if skip_based_on_frequency:
+        # Create indices for the first and last elements within the window size
+        first_indices = tf.range(traj_len)[:, None]  # First index is the current timestep
+        last_indices = tf.maximum(first_indices + (window_size - 1), 0)  # Last index is the end of the window
+        
+        # Combine first and last indices into a single tensor
+        chunk_indices = tf.concat([first_indices, last_indices], axis=1)  # Shape: [traj_len, 2]
 
-    floored_chunk_indices = tf.maximum(chunk_indices, 0)
+        # Create action_chunk_indices for the first and last elements
+        action_first_indices = first_indices
+        action_last_indices = tf.minimum(first_indices + (window_size + future_action_window_size - 1), traj_len - 1)
+        action_chunk_indices = tf.concat([action_first_indices, action_last_indices], axis=1)  # Shape: [traj_len, 2]
+
+        # Ensure indices are bounded
+        floored_chunk_indices = tf.maximum(tf.minimum(chunk_indices, traj_len - 1), 0)
+
+    else:
+        chunk_indices = tf.broadcast_to(tf.range(-window_size + 1, 1), [traj_len, window_size]) + tf.broadcast_to(
+            tf.range(traj_len)[:, None], [traj_len, window_size]
+        )
+
+        action_chunk_indices = tf.broadcast_to(
+            tf.range(-window_size + 1, 1 + future_action_window_size),
+            [traj_len, window_size + future_action_window_size],
+        ) + tf.broadcast_to(
+            tf.range(traj_len)[:, None],
+            [traj_len, window_size + future_action_window_size],
+        )
+
+        floored_chunk_indices = tf.maximum(chunk_indices, 0)
 
     if "timestep" in traj["task"]:
         goal_timestep = traj["task"]["timestep"]

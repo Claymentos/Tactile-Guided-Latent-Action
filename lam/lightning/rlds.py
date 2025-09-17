@@ -20,6 +20,7 @@ class RLDSModule(L.LightningDataModule):
             randomize_view_order: bool = False,
             add_actions: bool = False,
             load_proprioception: bool = False,
+            skip_based_on_frequency: bool = False,
     ):
         super().__init__()
         self.data_dir = data_dir
@@ -35,6 +36,7 @@ class RLDSModule(L.LightningDataModule):
         self.randomize_view_order = randomize_view_order
         self.add_actions = add_actions
         self.load_proprioception = load_proprioception
+        self.skip_based_on_frequency = skip_based_on_frequency
 
     def build_dataset(self, train=True):
         batch_transform = RLDSBatchTransform(self.load_camera_views, self.randomize_view_order, self.add_actions, self.load_proprioception)
@@ -52,6 +54,7 @@ class RLDSModule(L.LightningDataModule):
             window_size=self.window_size,
             load_camera_views=self.load_camera_views,
             load_proprioception=self.load_proprioception,
+            skip_based_on_frequency=self.skip_based_on_frequency,
         )
 
         return dataset

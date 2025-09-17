@@ -13,3 +13,4 @@ data_module:
   randomize_view_order: false
   add_actions: false
   load_proprioception: false
+  skip_based_on_frequency: false

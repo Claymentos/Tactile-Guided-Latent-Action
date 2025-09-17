@@ -78,16 +78,21 @@ class LAMTraining(L.LightningModule):
 
         random_reconstruction = self.compute_metrics(target_view, recon_video, features, recon_features, indices, prefix="val", return_random_reconstruction=True)
 
+        # Add first frame for visualization in the 2 images case
+        if random_reconstruction is not None:
+            random_reconstruction = torch.cat([target_view[:, :1], random_reconstruction], dim=1)
+            recon_video = torch.cat([target_view[:, :1], recon_video], dim=1)
+
         if batch_idx == 0 and random_reconstruction is not None:
             x = [make_grid([
-                (target_view[0][t+1]*255).to('cpu', torch.uint8), (recon_video[0][t]*255).to('cpu', torch.uint8), (random_reconstruction[0][t]*255).to('cpu', torch.uint8),
-                (target_view[1][t+1]*255).to('cpu', torch.uint8), (recon_video[1][t]*255).to('cpu', torch.uint8), (random_reconstruction[1][t]*255).to('cpu', torch.uint8),
-                (target_view[2][t+1]*255).to('cpu', torch.uint8), (recon_video[2][t]*255).to('cpu', torch.uint8), (random_reconstruction[2][t]*255).to('cpu', torch.uint8),
-                (target_view[3][t+1]*255).to('cpu', torch.uint8), (recon_video[3][t]*255).to('cpu', torch.uint8), (random_reconstruction[3][t]*255).to('cpu', torch.uint8)
+                (target_view[0][t]*255).to('cpu', torch.uint8), (recon_video[0][t]*255).to('cpu', torch.uint8), (random_reconstruction[0][t]*255).to('cpu', torch.uint8),
+                (target_view[1][t]*255).to('cpu', torch.uint8), (recon_video[1][t]*255).to('cpu', torch.uint8), (random_reconstruction[1][t]*255).to('cpu', torch.uint8),
+                (target_view[2][t]*255).to('cpu', torch.uint8), (recon_video[2][t]*255).to('cpu', torch.uint8), (random_reconstruction[2][t]*255).to('cpu', torch.uint8),
+                (target_view[3][t]*255).to('cpu', torch.uint8), (recon_video[3][t]*255).to('cpu', torch.uint8), (random_reconstruction[3][t]*255).to('cpu', torch.uint8)
             ], nrow=3) for t in range(random_reconstruction.size(1))]
 
             x = torch.stack(x, dim=0)
-            video = wandb.Video(x, fps=4, caption="video | reconstruction | imagination")
+            video = wandb.Video(x, fps=2, caption="video | reconstruction | imagination")
             self.logger.experiment.log({"val_videos": video})
 
         return loss

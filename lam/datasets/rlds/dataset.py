@@ -32,6 +32,46 @@ from lam.datasets.rlds.utils.data_utils import (
 tf.config.set_visible_devices([], "GPU")
 
 
+DATASET_FREQUENCY_MAP = {'fractal20220817_data': 3, 
+                         'fractal_100': 3,
+                         'berkeley_autolab_ur5': 5,
+                         'bridge_orig': 5,
+                         'bridge_orig_100': 5,
+                         'nyu_franka_play_dataset_converted_externally_to_rlds': 3, 
+                         'ucsd_kitchen_dataset_converted_externally_to_rlds': 2, 
+                         'dlr_edan_shared_control_converted_externally_to_rlds': 5, 
+                         'dobbe': 4,
+                         'utaustin_mutex': 20, 
+                         'iamlab_cmu_pickup_insert_converted_externally_to_rlds': 20, 
+                         'austin_sailor_dataset_converted_externally_to_rlds': 20, 
+                         'austin_sirius_dataset_converted_externally_to_rlds': 20, 
+                         'toto': 30,
+                         'viola': 20, 
+                         'droid': 15,
+                         'droid_100': 300,
+                         'kuka': 10,
+                         'taco_play': 15,
+                         'jaco_play': 10,
+                         'berkeley_cable_routing': 10,
+                         'roboturk': 10,
+                         'language_table': 10,
+                         'stanford_hydra_dataset_converted_externally_to_rlds': 10,
+                         'austin_buds_dataset_converted_externally_to_rlds': 20,
+                         'furniture_bench_dataset_converted_externally_to_rlds': 10,
+                         'berkeley_fanuc_manipulation': 10,
+                         'cmu_stretch': 10,
+                         'bc_z': 10,
+                         'fmb': 10,
+                         'berkeley_gnm_recon': 3,
+                         'berkeley_gnm_cory_hall': 5,
+                         'berkeley_gnm_sac_son': 10,
+                         'ego4d_split_1': 2,
+                         'ego4d_split_2': 2,
+                         'ego4d_split_3': 2,
+                         'ego4d_split_4': 2,
+                         }
+
+
 # ruff: noqa: B006
 def make_dataset_from_rlds(
     name: str,
@@ -251,6 +291,7 @@ def apply_trajectory_transforms(
     dataset: dl.DLataset,
     *,
     train: bool,
+    dataset_name: str,
     goal_relabeling_strategy: Optional[str] = None,
     goal_relabeling_kwargs: dict = {},
     window_size: int = 1,
@@ -262,6 +303,7 @@ def apply_trajectory_transforms(
     task_augment_strategy: Optional[str] = None,
     task_augment_kwargs: dict = {},
     num_parallel_calls: int = tf.data.AUTOTUNE,
+    skip_based_on_frequency: bool = False,
 ) -> dl.DLataset:
     """
     Applies common transforms that happen at a trajectory level. Such transforms are usually some sort of "relabeling"
@@ -293,6 +335,9 @@ def apply_trajectory_transforms(
         task_augment_kwargs (dict, optional): Additional keyword arguments to pass to the task augmentation
             function.
         num_parallel_calls (int, optional): number of parallel calls for map operations. Default to AUTOTUNE.
+        skip_based_on_frequency (bool, optional): Whether to skip based on the frequency of the dataset. If True,
+            the window_size will be set according to the frequency of the dataset (see DATASET_FREQUENCY_MAP).
+            Window size will be ignored! Only a pair of frames is loaded, one second apart.
     """
     if skip_unlabeled:
         if "language_instruction" not in dataset.element_spec["task"]:
@@ -329,11 +374,17 @@ def apply_trajectory_transforms(
 
     # chunks observations and actions, giving them a new axis at index 1 of size `window_size` and
     # `window_size + future_action_window_size`, respectively
+
+    # Get the frequency of the current dataset to adjust window size accordingly
+    if skip_based_on_frequency:
+        window_size = DATASET_FREQUENCY_MAP[dataset_name]
+
     dataset = dataset.traj_map(
         partial(
             traj_transforms.chunk_act_obs,
             window_size=window_size,
             future_action_window_size=future_action_window_size,
+            skip_based_on_frequency=skip_based_on_frequency,
         ),
         num_parallel_calls,
     )
@@ -442,7 +493,7 @@ def make_single_dataset(
         **dataset_kwargs,
         train=train,
     )
-    dataset = apply_trajectory_transforms(dataset, **traj_transform_kwargs, train=train)
+    dataset = apply_trajectory_transforms(dataset, **traj_transform_kwargs, train=train, dataset_name=dataset_kwargs['name'])
     dataset = apply_frame_transforms(dataset, **frame_transform_kwargs, train=train)
 
     # this seems to reduce memory usage without affecting speed
@@ -555,6 +606,7 @@ def make_interleaved_dataset(
             **traj_transform_kwargs,
             num_parallel_calls=threads,
             train=train,
+            dataset_name=dataset_kwargs['name'],
         ).flatten(num_parallel_calls=threads)
         dataset = apply_per_dataset_frame_transforms(dataset, **dataset_frame_transform_kwargs)
         datasets.append(dataset)
