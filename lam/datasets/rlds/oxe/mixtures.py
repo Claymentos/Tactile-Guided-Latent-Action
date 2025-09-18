@@ -373,7 +373,7 @@ OXE_NAMED_MIXTURES: Dict[str, List[Tuple[str, float]]] = {
         ("berkeley_fanuc_manipulation", 2.0),
         ("cmu_stretch", 1.0),
         ("bc_z", 0.2),                                          
-        ("fmb", 1.0),
+        ("fmb_dataset", 1.0),
         ("dobbe", 0.2),                   
         ## Datasets for Navigation
         ("berkeley_gnm_recon", 1.0),

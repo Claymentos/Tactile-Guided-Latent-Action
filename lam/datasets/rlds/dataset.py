@@ -61,7 +61,7 @@ DATASET_FREQUENCY_MAP = {'fractal20220817_data': 3,
                          'berkeley_fanuc_manipulation': 10,
                          'cmu_stretch': 10,
                          'bc_z': 10,
-                         'fmb': 10,
+                         'fmb_dataset': 10,
                          'berkeley_gnm_recon': 3,
                          'berkeley_gnm_cory_hall': 5,
                          'berkeley_gnm_sac_son': 10,
@@ -594,6 +594,10 @@ def make_interleaved_dataset(
             if "dataset_frame_transform_kwargs" in dataset_kwargs
             else {}
         )
+        # Special Case for `zero_relative_action_filter` (needs dataset statistics)
+        if dataset_frame_transform_kwargs["chunk_filter_fn"].__name__ == "zero_relative_action_filter":
+            zero_relative_action_filter = dataset_frame_transform_kwargs["chunk_filter_fn"]
+            dataset_frame_transform_kwargs["chunk_filter_fn"] = lambda x: zero_relative_action_filter(x, all_dataset_statistics[dataset_kwargs["name"]]["action"])
         dataset, _ = make_dataset_from_rlds(
             **dataset_kwargs,
             train=train,
