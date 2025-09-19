@@ -595,7 +595,7 @@ def make_interleaved_dataset(
             else {}
         )
         # Special Case for `zero_relative_action_filter` (needs dataset statistics)
-        if dataset_frame_transform_kwargs["chunk_filter_fn"].__name__ == "zero_relative_action_filter":
+        if "chunk_filter_fn" in dataset_frame_transform_kwargs and dataset_frame_transform_kwargs["chunk_filter_fn"].__name__ == "zero_relative_action_filter":
             zero_relative_action_filter = dataset_frame_transform_kwargs["chunk_filter_fn"]
             dataset_frame_transform_kwargs["chunk_filter_fn"] = lambda x: zero_relative_action_filter(x, all_dataset_statistics[dataset_kwargs["name"]]["action"])
         dataset, _ = make_dataset_from_rlds(
