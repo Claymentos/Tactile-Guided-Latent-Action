@@ -29,6 +29,7 @@ Configuration adopts the following structure:
 from enum import IntEnum
 
 from lam.datasets.rlds.oxe.utils.droid_utils import zero_action_filter
+from lam.datasets.rlds.oxe.utils.oxe_utils import zero_absolute_action_filter, zero_relative_action_filter, zero_proprio_filter
 
 
 # Defines Proprioceptive State Encoding Schemes
@@ -60,6 +61,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["base_pose_tool_reached", "gripper_closed"],
         "state_encoding": StateEncoding.POS_QUAT,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "fractal_100": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
@@ -67,6 +73,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["base_pose_tool_reached", "gripper_closed"],
         "state_encoding": StateEncoding.POS_QUAT,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "kuka": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
@@ -77,6 +88,11 @@ OXE_DATASET_CONFIGS = {
         ],
         "state_encoding": StateEncoding.POS_QUAT,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "bridge_oxe": {  # Version of Bridge V2 in Open X-Embodiment mixture
         "image_obs_keys": {"primary": "image", "secondary": "image_1", "wrist": None},
@@ -91,6 +107,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["EEF_state", None, "gripper_state"],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "bridge_multi_view": {  # Subset of original version of Bridge V2 from project website, containing multiple views (0, 1, 2)
         "image_obs_keys": {"primary": "image_1", "secondary": "image_2", "wrist": None},
@@ -120,6 +141,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["state_eef", None, "state_gripper"],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "jaco_play": {
         "image_obs_keys": {
@@ -131,6 +157,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["state_eef", None, "state_gripper"],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "berkeley_cable_routing": {
         "image_obs_keys": {
@@ -142,6 +173,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["robot_state", None],
         "state_encoding": StateEncoding.JOINT,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "roboturk": {
         "image_obs_keys": {"primary": "front_rgb", "secondary": None, "wrist": None},
@@ -167,6 +203,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["joint_states", "gripper_states"],
         "state_encoding": StateEncoding.JOINT,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "berkeley_autolab_ur5": {
         "image_obs_keys": {
@@ -178,6 +219,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["state"],
         "state_encoding": StateEncoding.POS_QUAT,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "toto": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
@@ -185,6 +231,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["state", None],
         "state_encoding": StateEncoding.JOINT,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "language_table": {
         "image_obs_keys": {"primary": "rgb", "secondary": None, "wrist": None},
@@ -192,6 +243,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["effector_translation", None, None, None, None, None, None],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "columbia_cairlab_pusht_real": {
         "image_obs_keys": {
@@ -203,6 +259,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["robot_state", None, None, None, None, None, None],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "stanford_kuka_multimodal_dataset_converted_externally_to_rlds": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
@@ -210,6 +271,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["ee_position", "ee_orientation", None],
         "state_encoding": StateEncoding.POS_QUAT,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "nyu_rot_dataset_converted_externally_to_rlds": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
@@ -217,6 +283,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["eef_state", None, "gripper_state"],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "stanford_hydra_dataset_converted_externally_to_rlds": {
         "image_obs_keys": {
@@ -228,6 +299,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["eef_state", None, "gripper_state"],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "austin_buds_dataset_converted_externally_to_rlds": {
         "image_obs_keys": {
@@ -239,6 +315,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["state"],
         "state_encoding": StateEncoding.JOINT,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "nyu_franka_play_dataset_converted_externally_to_rlds": {
         "image_obs_keys": {
@@ -254,6 +335,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["eef_state", None, None],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "maniskill_dataset_converted_externally_to_rlds": {
         "image_obs_keys": {
@@ -269,6 +355,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["tcp_pose", "gripper_state"],
         "state_encoding": StateEncoding.POS_QUAT,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "furniture_bench_dataset_converted_externally_to_rlds": {
         "image_obs_keys": {
@@ -280,6 +371,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["state"],
         "state_encoding": StateEncoding.POS_QUAT,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "cmu_franka_exploration_dataset_converted_externally_to_rlds": {
         "image_obs_keys": {
@@ -298,6 +394,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["joint_state", None],
         "state_encoding": StateEncoding.JOINT,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "ucsd_pick_and_place_dataset_converted_externally_to_rlds": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
@@ -305,6 +406,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["eef_state", None, "gripper_state"],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "austin_sailor_dataset_converted_externally_to_rlds": {
         "image_obs_keys": {
@@ -316,6 +422,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["state"],
         "state_encoding": StateEncoding.POS_QUAT,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "austin_sirius_dataset_converted_externally_to_rlds": {
         "image_obs_keys": {
@@ -327,6 +438,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["state"],
         "state_encoding": StateEncoding.POS_QUAT,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "bc_z": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
@@ -339,6 +455,11 @@ OXE_DATASET_CONFIGS = {
         ],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "utokyo_pr2_opening_fridge_converted_externally_to_rlds": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
@@ -346,6 +467,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["eef_state", None, "gripper_state"],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "utokyo_pr2_tabletop_manipulation_converted_externally_to_rlds": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
@@ -353,6 +479,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["eef_state", None, "gripper_state"],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "utokyo_xarm_pick_and_place_converted_externally_to_rlds": {
         "image_obs_keys": {
@@ -364,6 +495,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["end_effector_pose", None, None],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "utokyo_xarm_bimanual_converted_externally_to_rlds": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
@@ -371,6 +507,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["pose_r", None, None],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "robo_net": {
         "image_obs_keys": {"primary": "image", "secondary": "image1", "wrist": None},
@@ -378,6 +519,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["eef_state", None, "gripper_state"],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "berkeley_mvp_converted_externally_to_rlds": {
         "image_obs_keys": {"primary": None, "secondary": None, "wrist": "hand_image"},
@@ -385,6 +531,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["pose", "gripper"],
         "state_encoding": StateEncoding.POS_QUAT,
         "action_encoding": ActionEncoding.JOINT_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "berkeley_rpt_converted_externally_to_rlds": {
         "image_obs_keys": {"primary": None, "secondary": None, "wrist": "hand_image"},
@@ -392,6 +543,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["joint_pos", "gripper"],
         "state_encoding": StateEncoding.JOINT,
         "action_encoding": ActionEncoding.JOINT_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "kaist_nonprehensile_converted_externally_to_rlds": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
@@ -399,6 +555,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["state", None],
         "state_encoding": StateEncoding.POS_QUAT,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "stanford_mask_vit_converted_externally_to_rlds": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
@@ -406,6 +567,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["eef_state", None, "gripper_state"],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "tokyo_u_lsmo_converted_externally_to_rlds": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
@@ -413,6 +579,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["eef_state", None, "gripper_state"],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "dlr_sara_pour_converted_externally_to_rlds": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
@@ -420,6 +591,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["state", None, None],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "dlr_sara_grid_clamp_converted_externally_to_rlds": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
@@ -427,6 +603,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["state", None, None],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "dlr_edan_shared_control_converted_externally_to_rlds": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
@@ -434,6 +615,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["state", None],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "asu_table_top_converted_externally_to_rlds": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
@@ -441,6 +627,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["eef_state", None, "gripper_state"],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "stanford_robocook_converted_externally_to_rlds": {
         "image_obs_keys": {"primary": "image_1", "secondary": "image_2", "wrist": None},
@@ -448,6 +639,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["eef_state", None, "gripper_state"],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "imperialcollege_sawyer_wrist_cam": {
         "image_obs_keys": {
@@ -459,6 +655,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": [None, None, None, None, None, None, None, "state"],
         "state_encoding": StateEncoding.NONE,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "iamlab_cmu_pickup_insert_converted_externally_to_rlds": {
         "image_obs_keys": {
@@ -470,6 +671,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["joint_state", "gripper_state"],
         "state_encoding": StateEncoding.JOINT,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "uiuc_d3field": {
         "image_obs_keys": {"primary": "image_1", "secondary": "image_2", "wrist": None},
@@ -488,6 +694,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["state"],
         "state_encoding": StateEncoding.JOINT,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "berkeley_fanuc_manipulation": {
         "image_obs_keys": {
@@ -499,6 +710,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["joint_state", None, "gripper_state"],
         "state_encoding": StateEncoding.JOINT,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "cmu_playing_with_food": {
         "image_obs_keys": {
@@ -510,6 +726,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["state", None, None],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "cmu_play_fusion": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
@@ -517,6 +738,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["state"],
         "state_encoding": StateEncoding.JOINT,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "cmu_stretch": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
@@ -524,6 +750,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["eef_state", None, "gripper_state"],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "berkeley_gnm_recon": {
         "image_obs_keys": {"primary": None, "secondary": None, "wrist": "image"},
@@ -531,6 +762,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["state", None, None],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "berkeley_gnm_cory_hall": {
         "image_obs_keys": {"primary": None, "secondary": None, "wrist": "image"},
@@ -538,6 +774,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["state", None, None],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "berkeley_gnm_sac_son": {
         "image_obs_keys": {"primary": None, "secondary": None, "wrist": "image"},
@@ -545,6 +786,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["state", None, None],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "droid": {
         "image_obs_keys": {
@@ -558,7 +804,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_action_filter,
+                "chunk_filter_fn": zero_proprio_filter,
             },
         },
     },
@@ -574,7 +820,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_action_filter,
+                "chunk_filter_fn": zero_proprio_filter,
             },
         },
     },
@@ -592,6 +838,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["proprio"],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "dobbe": {
         "image_obs_keys": {"primary": "wrist_image", "secondary": None, "wrist": None},
@@ -599,6 +850,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["proprio"],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "roboset": {
         "image_obs_keys": {
@@ -610,6 +866,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["proprio"],
         "state_encoding": StateEncoding.JOINT,
         "action_encoding": ActionEncoding.JOINT_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     "rh20t": {
         "image_obs_keys": {
@@ -621,6 +882,11 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["proprio"],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
+        "aux_kwargs": {
+            "dataset_frame_transform_kwargs": {
+                "chunk_filter_fn": zero_proprio_filter,
+            },
+        },
     },
     ### T-DROID datasets
     "tdroid_carrot_in_bowl": {  # "put carrot in bowl" task, 50 demos @ 5 Hz control
@@ -709,6 +975,7 @@ OXE_DATASET_CONFIGS = {
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
     },
+    ### LIRIS datasets
     "liris_pnp_blue_cube": {
         "image_obs_keys": {"primary": "exterior_image_1_left", "secondary": None, "wrist": "wrist_image_left"},
         "depth_obs_keys": {"primary": None, "secondary": None, "wrist": None},

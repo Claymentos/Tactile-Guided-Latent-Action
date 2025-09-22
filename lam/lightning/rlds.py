@@ -19,7 +19,7 @@ class RLDSModule(L.LightningDataModule):
             multiview: bool = False,
             randomize_view_order: bool = False,
             add_actions: bool = False,
-            load_proprioception: bool = False,
+            load_proprioception: bool = True,
             skip_based_on_frequency: bool = False,
     ):
         super().__init__()
