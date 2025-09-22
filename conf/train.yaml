@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - algo: lam
+  - algo: lam_spatial_decoder
   - algo/quantization: vq
   - algo/feature_extractor: identity
   - data: rlds
