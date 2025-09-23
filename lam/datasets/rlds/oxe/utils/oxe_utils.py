@@ -49,4 +49,4 @@ def zero_proprio_filter(traj: Dict) -> bool:
     # if not tf.reduce_any(tf.math.abs(proprio_diff) > 1e-5):
     #     tf.print("Non-zero proprioception difference found:", proprio_diff)
 
-    return not tf.reduce_any(tf.math.abs(proprio_diff) > 1e-5)
+    return tf.reduce_any(tf.math.abs(proprio_diff) > 1e-5)

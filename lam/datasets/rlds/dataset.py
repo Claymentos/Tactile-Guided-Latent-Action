@@ -622,7 +622,7 @@ def make_interleaved_dataset(
     if not train:
         dataset = dataset.take(shuffle_buffer_size).cache()
         dataset_len = shuffle_buffer_size               # Fix validation dataset length
-
+    print("Finish cashing validation dataset!")
     # Shuffle the Dataset
     #   =>> IMPORTANT :: Shuffle AFTER .cache(), or else memory will still leak!
     dataset = dataset.shuffle(shuffle_buffer_size)
@@ -630,15 +630,22 @@ def make_interleaved_dataset(
     # Apply Frame Transforms
     print("Applying frame transforms on dataset...")
     dataset = apply_frame_transforms(dataset, **frame_transform_kwargs, train=train)
-
+    print("Finish Applying frame transforms on dataset!")
     # [Contract] When training VLA Policies, we let the Collator handle Batching!
     if batch_size is not None:
         dataset = dataset.batch(batch_size)
-
+    print("Finish Applying batch")
     # Note =>> Seems to reduce memory usage without affecting speed?
-    dataset = dataset.with_ram_budget(1)
+    dataset = dataset.with_ram_budget(64)
 
     # Save for Later
     dataset.sample_weights = sample_weights
 
+    # Options to try to save memory
+    options = tf.data.Options()
+    options.autotune.enabled = False
+    options.experimental_distribute.auto_shard_policy = (tf.data.experimental.AutoShardPolicy.OFF)
+    options.experimental_optimization.inject_prefetch = False
+    dataset = dataset.with_options(options)
+    print("Finish loading dataset!")
     return dataset, dataset_len, all_dataset_statistics
