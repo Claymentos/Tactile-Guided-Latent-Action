@@ -847,7 +847,7 @@ OXE_DATASET_CONFIGS = {
     "dobbe": {
         "image_obs_keys": {"primary": "wrist_image", "secondary": None, "wrist": None},
         "depth_obs_keys": {"primary": None, "secondary": None, "wrist": None},
-        "state_obs_keys": ["proprio"],
+        "state_obs_keys": ["proprio", None],
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
