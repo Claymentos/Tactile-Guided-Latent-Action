@@ -31,7 +31,7 @@ from enum import IntEnum
 from lam.datasets.rlds.oxe.utils.droid_utils import zero_action_filter
 from lam.datasets.rlds.oxe.utils.oxe_utils import zero_absolute_action_filter, zero_relative_action_filter, zero_proprio_filter
 
-
+filter_fn = zero_proprio_filter
 # Defines Proprioceptive State Encoding Schemes
 class StateEncoding(IntEnum):
     # fmt: off
@@ -63,7 +63,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -75,7 +75,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -90,7 +90,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -109,7 +109,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -143,7 +143,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -159,7 +159,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -175,7 +175,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -205,7 +205,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -221,7 +221,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -233,7 +233,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -245,7 +245,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -261,7 +261,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -273,7 +273,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -285,7 +285,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -301,7 +301,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -317,7 +317,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -337,7 +337,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -357,7 +357,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -373,7 +373,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -396,7 +396,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -408,7 +408,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -424,7 +424,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -440,7 +440,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -457,7 +457,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -469,7 +469,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -481,7 +481,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -497,7 +497,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -509,7 +509,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -521,7 +521,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -533,7 +533,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.JOINT_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -545,7 +545,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.JOINT_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -557,7 +557,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -569,7 +569,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -581,7 +581,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -593,7 +593,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -605,7 +605,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -617,7 +617,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -629,7 +629,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -641,7 +641,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -657,7 +657,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -673,7 +673,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -696,7 +696,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -712,7 +712,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -728,7 +728,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -740,7 +740,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -752,7 +752,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -764,7 +764,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -776,7 +776,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -788,7 +788,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -804,7 +804,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -820,7 +820,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -840,7 +840,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -852,7 +852,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -868,7 +868,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.JOINT_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
@@ -884,7 +884,7 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
         "aux_kwargs": {
             "dataset_frame_transform_kwargs": {
-                "chunk_filter_fn": zero_proprio_filter,
+                "chunk_filter_fn": filter_fn,
             },
         },
     },
