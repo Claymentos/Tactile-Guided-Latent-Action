@@ -133,11 +133,14 @@ class LAMTraining(L.LightningModule):
             ssim_score = ssim(rearrange(recon_video, 'b t c h w -> (b t) c h w'), rearrange(batch[:, 1:], 'b t c h w -> (b t) c h w'))
             self.log(f"{prefix}_ssim", ssim_score)
 
-        feature_l1_loss = nn.functional.l1_loss(recon_features, features[:, :-1])
+        feature_l1_loss = nn.functional.l1_loss(recon_features, features[:, 1:])
         self.log(f"{prefix}_feature_l1_loss", feature_l1_loss)
 
         codebook_usage = self.codebook_usage(indices)
         self.log(f"{prefix}_codebook_usage", codebook_usage)
+
+        good_turing_coverage = self.good_turing_coverage(indices)
+        self.log(f"{prefix}_good_turing_codebook_coverage", good_turing_coverage)
 
         distinctiveness_cosine = self.distinctiveness_cosine(self.model.vq.get_codebook())
         self.log(f"{prefix}_distinctiveness_cosine", distinctiveness_cosine)
@@ -156,7 +159,14 @@ class LAMTraining(L.LightningModule):
         codebook_usage =  torch.mean((total_counts != 0).float())
 
         return codebook_usage
-        
+
+    def good_turing_coverage(self, indices):
+        '''Crude Good Turing: coverage ≈ 1 - (singletons / items_sampled)'''
+        values, counts = torch.unique(indices, return_counts=True)
+        singletons = (counts == 1).sum().item()
+        total = indices.numel()
+        return 1 - (singletons / total)
+
     def distinctiveness_cosine(self, codes):
         '''Measure how distinct the codes are using cosine similarity'''
         normalized_vectors = codes / torch.norm(codes, dim=1, keepdim=True)
