@@ -5,3 +5,4 @@ model:
   image_size: 224
   patch_size: 14
   channels: 3
+  decoder_path: null
