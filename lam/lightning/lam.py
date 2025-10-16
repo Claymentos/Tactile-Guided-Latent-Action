@@ -44,9 +44,9 @@ class LAMTraining(L.LightningModule):
         loss = recon_loss + commit_loss     # Add VQ-VAE loss
                                             # Only needed for VQ
 
-        self.log("train_loss", loss)
-        self.log("train_recon_loss", recon_loss)
-        self.log("train_commit_loss", commit_loss)
+        self.log("train/loss", loss)
+        self.log("train/recon_loss", recon_loss)
+        self.log("train/commit_loss", commit_loss)
 
         with torch.no_grad():
             self.compute_metrics(target_view, recon_video, features, recon_features, indices, prefix="train")
@@ -72,9 +72,9 @@ class LAMTraining(L.LightningModule):
 
         loss = recon_loss + commit_loss
 
-        self.log("val_loss", loss)
-        self.log("val_recon_loss", recon_loss)
-        self.log("val_commit_loss", commit_loss)
+        self.log("val/loss", loss)
+        self.log("val/recon_loss", recon_loss)
+        self.log("val/commit_loss", commit_loss)
 
         random_reconstruction = self.compute_metrics(target_view, recon_video, features, recon_features, indices, prefix="val", return_random_reconstruction=True)
 
@@ -103,13 +103,17 @@ class LAMTraining(L.LightningModule):
 
         return batch
 
-    def reconstruct_with_random_actions(self, batch, features):
+    def reconstruct_with_random_actions(self, batch, features, return_video=True):
         random_indices = torch.randint(0, self.model.vq.codebook_size, (batch.size(0), batch.size(1)-1), device=batch.device)
         random_action_tokens = self.model.vq.dequantize(random_indices) 
         recon_features = self.model.decode(features[:, :-1], random_action_tokens)
+
+        if not return_video:
+            return recon_features
+        
         recon_video = self.model.feature_extractor._post_process(recon_features)  
 
-        return recon_video
+        return recon_features, recon_video
 
     def imagine_with_random_actions(self, batch, features, times=4):
         x = batch[:, 0].unsqueeze(1)
@@ -126,30 +130,67 @@ class LAMTraining(L.LightningModule):
 
     def compute_metrics(self, batch, recon_video, features, recon_features, indices, prefix, return_random_reconstruction=False):
         if recon_video is not None:
-            imagination = self.reconstruct_with_random_actions(batch, features)
-            delta_psnr = self.psnr(batch[:, 1:], recon_video) - self.psnr(batch[:, 1:], imagination)
-            self.log(f"{prefix}_delta_psnr", delta_psnr)
-            
+            feature_imagination, video_imagination = self.reconstruct_with_random_actions(batch, features, return_video=True)
+
+            delta_psnr = self.psnr(batch[:, 1:], recon_video) - self.psnr(batch[:, 1:], video_imagination)
+            self.log(f"{prefix}/delta_psnr", delta_psnr)        # Image similarity metric
+
             ssim_score = ssim(rearrange(recon_video, 'b t c h w -> (b t) c h w'), rearrange(batch[:, 1:], 'b t c h w -> (b t) c h w'))
-            self.log(f"{prefix}_ssim", ssim_score)
+            self.log(f"{prefix}/ssim", ssim_score)              # Image controlability metric
+        else:
+            feature_imagination = self.reconstruct_with_random_actions(batch, features, return_video=False)
 
+        # Feature similarity metrics
         feature_l1_loss = nn.functional.l1_loss(recon_features, features[:, 1:])
-        self.log(f"{prefix}_feature_l1_loss", feature_l1_loss)
+        self.log(f"{prefix}/feature_l1_loss", feature_l1_loss)
 
+        ev = self.explained_variance(features[:, 1:], recon_features)
+        self.log(f"{prefix}/feature_explained_variance", ev)
+
+        feature_cosine_similarity = self.mean_feature_cosine_similarity(features[:, 1:], recon_features)
+        self.log(f"{prefix}/feature_cosine_similarity", feature_cosine_similarity)
+
+        # Feature controlability metrics
+        mse_ratio = torch.nn.functional.mse_loss(recon_features, features[:, 1:]).item() / torch.nn.functional.mse_loss(feature_imagination, features[:, 1:]).item()
+        self.log(f"{prefix}/mse_ratio", mse_ratio)              # The higher the better, should at least be higher than 1 | 1 is bad, below 1 is weird
+
+        delta_snr = self.snr(features[:, 1:], recon_features) - self.snr(features[:, 1:], feature_imagination)
+        self.log(f"{prefix}/feature_delta_snr", delta_snr)
+
+        imagination_cosine_similarity = self.mean_feature_cosine_similarity(recon_features, feature_imagination)
+        self.log(f"{prefix}/feature_imagination_and_reconstruction_cosine_similarity", imagination_cosine_similarity)
+
+        # Codebook usage metrics
         codebook_usage = self.codebook_usage(indices)
-        self.log(f"{prefix}_codebook_usage", codebook_usage)
+        self.log(f"{prefix}/codebook_usage", codebook_usage)
 
         good_turing_coverage = self.good_turing_coverage(indices)
-        self.log(f"{prefix}_good_turing_codebook_coverage", good_turing_coverage)
+        self.log(f"{prefix}/good_turing_codebook_coverage", good_turing_coverage)
 
         distinctiveness_cosine = self.distinctiveness_cosine(self.model.vq.get_codebook())
-        self.log(f"{prefix}_distinctiveness_cosine", distinctiveness_cosine)
+        self.log(f"{prefix}/distinctiveness_cosine", distinctiveness_cosine)
 
         if return_random_reconstruction and recon_video is not None:
-            return imagination
+            return video_imagination
 
     def psnr(self, image, reconstruction):
         return 10 * torch.log10((1.0**2) / torch.nn.functional.mse_loss(reconstruction, image)).item()
+
+    def snr(self, features, reconstruction):
+        return 10 * torch.log10(torch.var(features, dim=0, unbiased=False).mean().item() / torch.nn.functional.mse_loss(reconstruction, features)).item()
+
+    def explained_variance(self, features, reconstructed_features, eps=1e-12):
+        '''Compute the explained variance between features and reconstructed features'''
+        error_var = torch.var(features - reconstructed_features, dim=0, unbiased=False)
+        features_var = torch.var(features, dim=0, unbiased=False)
+        ev = 1 - error_var / (features_var + eps)
+        return ev.mean().item()
+
+    def mean_feature_cosine_similarity(self, features, reconstructed_features, eps=1e-12):
+        dot_product = (features * reconstructed_features).sum(dim=-1)
+        magnitude = features.norm(dim=-1) * reconstructed_features.norm(dim=-1)
+        cosine_similarity = dot_product / (magnitude + eps)
+        return cosine_similarity.mean().item()
 
     def codebook_usage(self, indices):
         values, counts = torch.unique(indices, return_counts=True)
