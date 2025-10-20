@@ -1,0 +1,10 @@
+model:
+  _target_: lam.feature_extractor.dinov3.DinoV3
+  model_id: dinov3_vitb16
+  repo_path: facebookresearch/dinov3
+  weights_path: facebookresearch/dinov3/checkpoints/dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth
+  model_dim: 768
+  image_size: 224
+  patch_size: 16
+  channels: 3
+  decoder_path: null
