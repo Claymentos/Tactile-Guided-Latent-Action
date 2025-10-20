@@ -856,6 +856,14 @@ def liris_droid_dataset_transform(trajectory: Dict[str, Any]) -> Dict[str, Any]:
     trajectory["observation"]["gripper_state"] = trajectory["observation"]["gripper_position"][:, :]  # 2D gripper state
     return trajectory
 
+
+def human_dataset_transform(sample: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    No transformation needed for human dataset.
+    """
+    return sample
+
+
 # === Registry ===
 OXE_STANDARDIZATION_TRANSFORMS = {
     "bridge_oxe": bridge_oxe_dataset_transform,
@@ -938,6 +946,8 @@ OXE_STANDARDIZATION_TRANSFORMS = {
     "libero_goal_no_noops": libero_dataset_transform,
     "libero_10_no_noops": libero_dataset_transform,
     "libero_90_no_noops": libero_dataset_transform,
+    ### Human Dataset
+    "ego4d": human_dataset_transform,
     ### LIRIS DROID datasets"
     "liris_pnp_blue_cube": liris_droid_dataset_transform,
     "liris_pnp_orange": liris_droid_dataset_transform,

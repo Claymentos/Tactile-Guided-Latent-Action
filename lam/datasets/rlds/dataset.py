@@ -65,11 +65,8 @@ DATASET_FREQUENCY_MAP = {'fractal20220817_data': 3,
                          'berkeley_gnm_recon': 3,
                          'berkeley_gnm_cory_hall': 5,
                          'berkeley_gnm_sac_son': 10,
-                         'ego4d_split_1': 2,
-                         'ego4d_split_2': 2,
-                         'ego4d_split_3': 2,
-                         'ego4d_split_4': 2,
-                         }
+                         'ego4d': 2,
+                        }
 
 
 # ruff: noqa: B006
