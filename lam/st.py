@@ -2,7 +2,6 @@ import torch
 
 from torch import nn
 from einops import rearrange
-from einops.layers.torch import Rearrange
 
 
 class FeedForward(nn.Module):
@@ -32,22 +31,24 @@ class SpatialTemporalLayer(nn.Module):
         self.norm2 = nn.LayerNorm(model_dim)
         self.norm3 = nn.LayerNorm(model_dim)
 
-        
-    def forward(self, x):
+
+    def forward(self, x, attention_mask=None):
         '''
         arguments:
         x: torch.Tensor, shape (batch_size, seq_len, patches, features)
         '''
         b, t, p, f = x.shape
         x = rearrange(x, 'b t p f -> (b t) p f')
+        attention_mask = rearrange(attention_mask, 'b t p -> (b t) p') if attention_mask is not None else None
         x_norm = self.norm1(x)
-        attn_output = self.spatial_attention(x_norm, x_norm, x_norm, need_weights=False)[0]
+        attn_output = self.spatial_attention(x_norm, x_norm, x_norm, need_weights=False, key_padding_mask=attention_mask)[0]
         x = x + attn_output
 
         x = rearrange(x, '(b t) p f -> (b p) t f', b=b, t=t)
+        attention_mask = rearrange(attention_mask, '(b t) p -> (b p) t', b=b, t=t) if attention_mask is not None else None
         x_norm = self.norm2(x)
         causal_mask = torch.nn.Transformer.generate_square_subsequent_mask(t, device=x.device)
-        attn_output = self.temporal_attention(x_norm, x_norm, x_norm, attn_mask=causal_mask, is_causal=True, need_weights=False)[0]
+        attn_output = self.temporal_attention(x_norm, x_norm, x_norm, attn_mask=causal_mask, is_causal=True, need_weights=False, key_padding_mask=attention_mask)[0]
         x = x + attn_output
 
         x_norm = self.norm3(x)
@@ -94,7 +95,7 @@ class STTransformer(nn.Module):
         ))
         
 
-    def forward(self, x, actions=None):
+    def forward(self, x, actions=None, registers=None, attention_mask=None):
         '''
         arguments:
         x: torch.Tensor, shape (batch_size, seq_len, num_patches, model_dim)
@@ -104,6 +105,7 @@ class STTransformer(nn.Module):
         if self.add_readout_token:
             readout_token = torch.zeros((b, t, 1, f), device=x.device, dtype=x.dtype)
             x = torch.cat([x, readout_token], dim=2)
+            attention_mask = torch.cat([attention_mask, torch.zeros((b, t, 1), device=x.device)], dim=-1)
         elif actions is not None:
             actions = actions.unsqueeze(2)
             actions = actions.repeat(1, 1, p, 1)
@@ -125,8 +127,11 @@ class STTransformer(nn.Module):
 
         x = rearrange(x, '(b p) t f -> b t p f', b=b, p=p)
 
+        if registers is not None:
+            x = torch.cat([registers, x], dim=2)
+
         for layer in self.transformer.layers:
-            x = layer(x)
+            x = layer(x, attention_mask=attention_mask)
 
         x = self.transformer.final_norm(x)
 
@@ -146,16 +151,17 @@ class TransformerLayer(nn.Module):
         self.norm1 = nn.LayerNorm(model_dim)          # Genie uses QK normalization
         self.norm2 = nn.LayerNorm(model_dim)
 
-        
-    def forward(self, x):
+
+    def forward(self, x, attention_mask=None):
         '''
         arguments:
         x: torch.Tensor, shape (batch_size, seq_len, patches, features)
         '''
         b, t, p, f = x.shape
         x = rearrange(x, 'b t p f -> (b t) p f')
+        attention_mask = rearrange(attention_mask, 'b t p -> (b t) p') if attention_mask is not None else None
         x_norm = self.norm1(x)
-        attn_output = self.spatial_attention(x_norm, x_norm, x_norm, need_weights=False)[0]
+        attn_output = self.spatial_attention(x_norm, x_norm, x_norm, need_weights=False, key_padding_mask=attention_mask)[0]
         x = x + attn_output
 
         x_norm = self.norm2(x)
@@ -196,7 +202,7 @@ class Transformer(nn.Module):
         ))
         
 
-    def forward(self, x, actions=None):
+    def forward(self, x, actions=None, registers=None, attention_mask=None):
         '''
         arguments:
         x: torch.Tensor, shape (batch_size, seq_len, num_patches, model_dim)
@@ -211,7 +217,6 @@ class Transformer(nn.Module):
         b, t, p, f = x.shape
         
         spatial_pos = torch.arange(0, p, dtype=torch.long, device=x.device)
-
         spatial_pos_embd = self.spatial_pos_embedding(spatial_pos)
 
         x = rearrange(x, 'b t p f -> (b t) p f')
@@ -219,8 +224,11 @@ class Transformer(nn.Module):
 
         x = rearrange(x, '(b t) p f -> b t p f', b=b, t=t)
 
+        if registers is not None:
+            x = torch.cat([registers, x], dim=2)
+
         for layer in self.transformer.layers:
-            x = layer(x)
+            x = layer(x, attention_mask=attention_mask)
 
         x = self.transformer.final_norm(x)
 

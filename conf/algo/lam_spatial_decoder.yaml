@@ -21,3 +21,6 @@ model:
     image_size: ${algo.feature_extractor.model.image_size}
     patch_size: ${algo.feature_extractor.model.patch_size}
   vq: ${algo.quantization.vq}
+  num_register_tokens: 0
+  register_dropout_mean: 0.0
+  register_dropout_std: 0.0

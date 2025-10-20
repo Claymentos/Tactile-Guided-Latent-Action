@@ -1,5 +1,7 @@
+import torch
 from torch import nn
 from einops.layers.torch import Rearrange
+from einops import repeat
 
 
 class LAM(nn.Module):
@@ -7,12 +9,23 @@ class LAM(nn.Module):
                  encoder,
                  decoder,
                  vq,
-                 feature_extractor):
+                 feature_extractor,
+                 num_register_tokens,
+                 register_dropout_mean,
+                 register_dropout_std):
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
         self.vq = vq
         self.feature_extractor = feature_extractor
+
+        self.num_register_tokens = num_register_tokens
+        self.register_dropout_mean = register_dropout_mean
+        self.register_dropout_std = register_dropout_std
+
+        if num_register_tokens:
+            self.register_tokens = nn.Parameter(torch.zeros(1, num_register_tokens, encoder.spatial_pos_embedding.weight.shape[1]))
+            nn.init.normal_(self.register_tokens, std=1e-6)
 
 
     def forward(self, x):
@@ -21,25 +34,42 @@ class LAM(nn.Module):
         x: torch.Tensor, shape (batch_size, seq_len, channels, height, width)
         '''
         features = self.feature_extractor(x)                                            # Extract image features or simply patchfy and project if working in image space
-        
-        logits, readout = self.encode(features)
-        readout = readout[:, 1:, :]                                                 # Ignore the first action token, it doesn't represent any transition
+
+        B, T, P, F = features.shape
+        attention_mask = torch.ones((B, P), device=x.device)                            # Attention mask for the patches
+
+        if hasattr(self, 'register_tokens'):
+            p = torch.clamp(torch.normal(self.register_dropout_mean, self.register_dropout_std, size=(B,), device=x.device), 0.0, 1.0).unsqueeze(1)
+            register_attention_mask = (torch.rand((B, self.num_register_tokens), device=x.device) > p).float()
+            
+            attention_mask = torch.cat([register_attention_mask, attention_mask], dim=-1)
+            register_tokens = repeat(self.register_tokens, '1 n d -> b t n d', b=B, t=T)
+        else:
+            register_tokens, register_readouts = None, None
+
+        attention_mask = repeat(attention_mask, 'b p -> b t p', b=B, t=T)           
+        attention_mask = torch.log(attention_mask)                                                                                              # Equivalent to torch.where(x == 1.0, 0.0, float('-inf'))    
+
+        logits, readout = self.encode(features, registers=register_tokens, attention_mask=attention_mask)
+        readout = readout[:, 1:, :]                                                                                                             # Ignore the first action token, it doesn't represent any transition
         action_tokens, indices, commit_loss = self.vq.quantize(readout)
 
-        logits = self.decode(features[:, :-1], action_tokens)                                             # Ignore the last frame, since there is no target for it
-        recon_loss, recon_video = self.feature_extractor.compute_loss(logits, x[:, 1:], features[:, 1:])      # The first frame of x is not used as a target
+        if register_tokens is not None:
+            register_readouts = logits[:, 1:, :self.num_register_tokens, :]                                                                     # Ignore the first register token, it doesn't represent any transition
+
+        logits = self.decode(features[:, :-1], actions=action_tokens, registers=register_readouts, attention_mask=attention_mask[:, :-1])       # Ignore the last frame, since there is no target for it
+        logits = logits[:, :, self.num_register_tokens:, :]                                                                                     # Remove the register tokens from the decoder output
+        recon_loss, recon_video = self.feature_extractor.compute_loss(logits, x[:, 1:], features[:, 1:])                                        # The first frame of x is not used as a target
         
         return recon_loss, commit_loss, indices, features, logits, recon_video
 
         
-    def encode(self, x):
-        return self.encoder(x)
-    
+    def encode(self, x, registers=None, attention_mask=None):
+        return self.encoder(x, registers=registers, attention_mask=attention_mask)
 
-    def decode(self, x, actions):
-        logits = self.decoder(x, actions)
-     
-        return logits
+
+    def decode(self, x, actions, registers=None, attention_mask=None):
+        return self.decoder(x, actions, registers=registers, attention_mask=attention_mask)
 
 
 class ChunkLAM(nn.Module):

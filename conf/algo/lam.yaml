@@ -24,3 +24,6 @@ model:
     max_seq_len: ${algo.model.encoder.max_seq_len}
     add_readout_token: false
   vq: ${algo.quantization.vq}
+  num_register_tokens: 0
+  register_dropout_mean: 0.0
+  register_dropout_std: 0.0
