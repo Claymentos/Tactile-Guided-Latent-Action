@@ -36,19 +36,18 @@ class LAM(nn.Module):
         features = self.feature_extractor(x)                                            # Extract image features or simply patchfy and project if working in image space
 
         B, T, P, F = features.shape
-        attention_mask = torch.ones((B, P), device=x.device)                            # Attention mask for the patches
+        attention_mask = torch.zeros((B, P), dtype=torch.bool, device=x.device)         # Attention mask for the patches (False means keep, True means mask)
 
         if hasattr(self, 'register_tokens'):
             p = torch.clamp(torch.normal(self.register_dropout_mean, self.register_dropout_std, size=(B,), device=x.device), 0.0, 1.0).unsqueeze(1)
-            register_attention_mask = (torch.rand((B, self.num_register_tokens), device=x.device) > p).float()
-            
+            register_attention_mask = (torch.rand((B, self.num_register_tokens), device=x.device) < p)
+
             attention_mask = torch.cat([register_attention_mask, attention_mask], dim=-1)
             register_tokens = repeat(self.register_tokens, '1 n d -> b t n d', b=B, t=T)
         else:
             register_tokens, register_readouts = None, None
 
-        attention_mask = repeat(attention_mask, 'b p -> b t p', b=B, t=T)           
-        attention_mask = torch.log(attention_mask)                                                                                              # Equivalent to torch.where(x == 1.0, 0.0, float('-inf'))    
+        attention_mask = repeat(attention_mask, 'b p -> b t p', b=B, t=T)
 
         logits, readout = self.encode(features, registers=register_tokens, attention_mask=attention_mask)
         readout = readout[:, 1:, :]                                                                                                             # Ignore the first action token, it doesn't represent any transition

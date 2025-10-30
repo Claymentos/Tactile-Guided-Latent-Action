@@ -45,10 +45,9 @@ class SpatialTemporalLayer(nn.Module):
         x = x + attn_output
 
         x = rearrange(x, '(b t) p f -> (b p) t f', b=b, t=t)
-        attention_mask = rearrange(attention_mask, '(b t) p -> (b p) t', b=b, t=t) if attention_mask is not None else None
         x_norm = self.norm2(x)
         causal_mask = torch.nn.Transformer.generate_square_subsequent_mask(t, device=x.device)
-        attn_output = self.temporal_attention(x_norm, x_norm, x_norm, attn_mask=causal_mask, is_causal=True, need_weights=False, key_padding_mask=attention_mask)[0]
+        attn_output = self.temporal_attention(x_norm, x_norm, x_norm, attn_mask=causal_mask, is_causal=True, need_weights=False)[0]
         x = x + attn_output
 
         x_norm = self.norm3(x)
@@ -105,7 +104,7 @@ class STTransformer(nn.Module):
         if self.add_readout_token:
             readout_token = torch.zeros((b, t, 1, f), device=x.device, dtype=x.dtype)
             x = torch.cat([x, readout_token], dim=2)
-            attention_mask = torch.cat([attention_mask, torch.zeros((b, t, 1), device=x.device)], dim=-1)
+            attention_mask = torch.cat([attention_mask, torch.zeros((b, t, 1), dtype=torch.bool, device=x.device)], dim=-1)
         elif actions is not None:
             actions = actions.unsqueeze(2)
             actions = actions.repeat(1, 1, p, 1)
