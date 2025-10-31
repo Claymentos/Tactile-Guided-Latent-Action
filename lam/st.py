@@ -104,7 +104,7 @@ class STTransformer(nn.Module):
         if self.add_readout_token:
             readout_token = torch.zeros((b, t, 1, f), device=x.device, dtype=x.dtype)
             x = torch.cat([x, readout_token], dim=2)
-            attention_mask = torch.cat([attention_mask, torch.zeros((b, t, 1), dtype=torch.bool, device=x.device)], dim=-1)
+            attention_mask = torch.cat([attention_mask, torch.zeros((b, t, 1), dtype=torch.bool, device=x.device)], dim=-1) if attention_mask is not None else None
         elif actions is not None:
             actions = actions.unsqueeze(2)
             actions = actions.repeat(1, 1, p, 1)
