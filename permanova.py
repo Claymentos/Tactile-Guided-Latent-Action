@@ -10,8 +10,6 @@ def main(args):
     with open(args.filename, "rb") as file:
         action_map = pickle.load(file)                          # List[Tensors] Shape: N, (C, D)
 
-    action_map = [t.squeeze(1) if t.ndim == 3 else t for t in action_map]
-
     all_vectors = torch.cat(action_map).numpy()               
     grouping_labels = [f"<ACT_{idx}>" for idx, t in enumerate(action_map) for _ in range(t.shape[0])]
 
@@ -35,7 +33,7 @@ def main(args):
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(description="t-SNE")
-    argparser.add_argument("--filename", type=str, default="latent_to_real_actions_fc4rkpjn_fractal_100.pkl", help="Input filename")
+    argparser.add_argument("--filename", type=str, default="latent_to_real_proprio_diff_kz827dan_fractal_100.pkl", help="Input filename")
 
     args = argparser.parse_args()
     main(args)

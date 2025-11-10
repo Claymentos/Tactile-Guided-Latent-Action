@@ -69,6 +69,19 @@ class LAM(nn.Module):
 
     def decode(self, x, actions, registers=None, attention_mask=None):
         return self.decoder(x, actions, registers=registers, attention_mask=attention_mask)
+    
+    def get_latent_actions(self, x):
+        '''
+        arguments:
+        x: torch.Tensor, shape (batch_size, seq_len, channels, height, width)
+        '''
+        features = self.feature_extractor(x)                                            # Extract image features or simply patchfy and project if working in image space
+
+        logits, readout = self.encode(features)
+        readout = readout[:, 1:, :]                                                 # Ignore the first action token, it doesn't represent any transition
+        action_tokens, indices, commit_loss = self.vq.quantize(readout)
+
+        return action_tokens, indices
 
 
 class ChunkLAM(nn.Module):
