@@ -97,3 +97,19 @@ class NSVQ(Quantizer):
     
     def replace_codebook(self, replace_interval):
         self.quantizer.replace_unused_codebook(replace_interval)
+
+
+class Linear(Quantizer):
+    def __init__(self,
+                 model):
+        super().__init__(model)
+
+    def quantize(self, x):
+        tokens, _, regularization_loss = self.quantizer(x)
+        return tokens, None, regularization_loss
+    
+    def dequantize(self, indices):
+        return None
+    
+    def get_codebook(self):
+        return None

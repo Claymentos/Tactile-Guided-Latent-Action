@@ -78,22 +78,8 @@ class LAMTraining(L.LightningModule):
 
         random_reconstruction = self.compute_metrics(target_view, recon_video, features, recon_features, indices, prefix="val", return_random_reconstruction=True)
 
-        # Add first frame for visualization in the 2 images case
-        if random_reconstruction is not None:
-            random_reconstruction = torch.cat([target_view[:, :1], random_reconstruction], dim=1)
-            recon_video = torch.cat([target_view[:, :1], recon_video], dim=1)
-
-        if batch_idx == 0 and random_reconstruction is not None:
-            x = [make_grid([
-                (target_view[0][t]*255).to('cpu', torch.uint8), (recon_video[0][t]*255).to('cpu', torch.uint8), (random_reconstruction[0][t]*255).to('cpu', torch.uint8),
-                (target_view[1][t]*255).to('cpu', torch.uint8), (recon_video[1][t]*255).to('cpu', torch.uint8), (random_reconstruction[1][t]*255).to('cpu', torch.uint8),
-                (target_view[2][t]*255).to('cpu', torch.uint8), (recon_video[2][t]*255).to('cpu', torch.uint8), (random_reconstruction[2][t]*255).to('cpu', torch.uint8),
-                (target_view[3][t]*255).to('cpu', torch.uint8), (recon_video[3][t]*255).to('cpu', torch.uint8), (random_reconstruction[3][t]*255).to('cpu', torch.uint8)
-            ], nrow=3) for t in range(random_reconstruction.size(1))]
-
-            x = torch.stack(x, dim=0)
-            video = wandb.Video(x, fps=2, caption="video | reconstruction | imagination")
-            self.logger.experiment.log({"val_videos": video})
+        if batch_idx == 0:
+            self.log_videos(target_view, recon_video, random_reconstruction)
 
         return loss
     
@@ -102,8 +88,42 @@ class LAMTraining(L.LightningModule):
             batch["images"] = torch.flip(batch['obs']['agentview_rgb'], dims=(-2,)) / 255.0           # Images on Libero are upside down
 
         return batch
+    
+    def log_videos(self, target_view, recon_video, random_reconstruction):
+        recon_video = torch.cat([target_view[:, :1], recon_video], dim=1)
+        
+        if random_reconstruction is not None:
+            random_reconstruction = torch.cat([target_view[:, :1], random_reconstruction], dim=1)
+
+            x = [make_grid([
+                (target_view[0][t]*255).to('cpu', torch.uint8), (recon_video[0][t]*255).to('cpu', torch.uint8), (random_reconstruction[0][t]*255).to('cpu', torch.uint8),
+                (target_view[1][t]*255).to('cpu', torch.uint8), (recon_video[1][t]*255).to('cpu', torch.uint8), (random_reconstruction[1][t]*255).to('cpu', torch.uint8),
+                (target_view[2][t]*255).to('cpu', torch.uint8), (recon_video[2][t]*255).to('cpu', torch.uint8), (random_reconstruction[2][t]*255).to('cpu', torch.uint8),
+                (target_view[3][t]*255).to('cpu', torch.uint8), (recon_video[3][t]*255).to('cpu', torch.uint8), (random_reconstruction[3][t]*255).to('cpu', torch.uint8)
+            ], nrow=3) for t in range(random_reconstruction.size(1))]
+
+            caption="video | reconstruction | imagination"
+
+        else:
+            x = [make_grid([
+                (target_view[0][t]*255).to('cpu', torch.uint8), (recon_video[0][t]*255).to('cpu', torch.uint8),
+                (target_view[1][t]*255).to('cpu', torch.uint8), (recon_video[1][t]*255).to('cpu', torch.uint8),
+                (target_view[2][t]*255).to('cpu', torch.uint8), (recon_video[2][t]*255).to('cpu', torch.uint8),
+                (target_view[3][t]*255).to('cpu', torch.uint8), (recon_video[3][t]*255).to('cpu', torch.uint8)
+            ], nrow=2) for t in range(recon_video.size(1))]
+
+            caption="video | reconstruction"
+
+        x = torch.stack(x, dim=0)
+        video = wandb.Video(x, fps=2, caption=caption)
+        self.logger.experiment.log({"val_videos": video})
 
     def reconstruct_with_random_actions(self, batch, features, return_video=True):
+        if self.model.vq.get_codebook() is None:
+            if return_video:
+                return None, None
+            return None
+
         random_indices = torch.randint(0, self.model.vq.codebook_size, (batch.size(0), batch.size(1)-1), device=batch.device)
         random_action_tokens = self.model.vq.dequantize(random_indices) 
         recon_features = self.model.decode(features[:, :-1], random_action_tokens)
@@ -132,7 +152,7 @@ class LAMTraining(L.LightningModule):
         if recon_video is not None:
             feature_imagination, video_imagination = self.reconstruct_with_random_actions(batch, features, return_video=True)
 
-            delta_psnr = self.psnr(batch[:, 1:], recon_video) - self.psnr(batch[:, 1:], video_imagination)
+            delta_psnr = self.delta_psnr(batch[:, 1:], recon_video, video_imagination)
             self.log(f"{prefix}/delta_psnr", delta_psnr)        # Image similarity metric
 
             ssim_score = ssim(rearrange(recon_video, 'b t c h w -> (b t) c h w'), rearrange(batch[:, 1:], 'b t c h w -> (b t) c h w'))
@@ -151,10 +171,10 @@ class LAMTraining(L.LightningModule):
         self.log(f"{prefix}/feature_cosine_similarity", feature_cosine_similarity)
 
         # Feature controlability metrics
-        mse_ratio = torch.nn.functional.mse_loss(recon_features, features[:, 1:]).item() / torch.nn.functional.mse_loss(feature_imagination, features[:, 1:]).item()
+        mse_ratio = self.mse_ratio(features, recon_features, feature_imagination)
         self.log(f"{prefix}/mse_ratio", mse_ratio)              # The higher the better, should at least be higher than 1 | 1 is bad, below 1 is weird
 
-        delta_snr = self.snr(features[:, 1:], recon_features) - self.snr(features[:, 1:], feature_imagination)
+        delta_snr = self.delta_snr(features[:, 1:], recon_features, feature_imagination)
         self.log(f"{prefix}/feature_delta_snr", delta_snr)
 
         imagination_cosine_similarity = self.mean_feature_cosine_similarity(recon_features, feature_imagination)
@@ -179,6 +199,24 @@ class LAMTraining(L.LightningModule):
     def snr(self, features, reconstruction):
         return 10 * torch.log10(torch.var(features, dim=0, unbiased=False).mean().item() / torch.nn.functional.mse_loss(reconstruction, features)).item()
 
+    def delta_psnr(self, video, recon_video, video_imagination):
+        if video is None or recon_video is None or video_imagination is None:
+            return 0
+        
+        return self.psnr(video, recon_video) - self.psnr(video, video_imagination)
+
+    def delta_snr(self, features, recon_features, feature_imagination):
+        if features is None or recon_features is None or feature_imagination is None:
+            return 0
+        
+        return self.snr(features, recon_features) - self.snr(features, feature_imagination)
+
+    def mse_ratio(self, features, recon_features, feature_imagination):
+        if features is None or recon_features is None or feature_imagination is None:
+            return 0
+
+        return torch.nn.functional.mse_loss(recon_features, features[:, 1:]).item() / torch.nn.functional.mse_loss(feature_imagination, features[:, 1:]).item()
+
     def explained_variance(self, features, reconstructed_features, eps=1e-12):
         '''Compute the explained variance between features and reconstructed features'''
         error_var = torch.var(features - reconstructed_features, dim=0, unbiased=False)
@@ -187,12 +225,18 @@ class LAMTraining(L.LightningModule):
         return ev.mean().item()
 
     def mean_feature_cosine_similarity(self, features, reconstructed_features, eps=1e-12):
+        if features is None or reconstructed_features is None:
+            return 0
+        
         dot_product = (features * reconstructed_features).sum(dim=-1)
         magnitude = features.norm(dim=-1) * reconstructed_features.norm(dim=-1)
         cosine_similarity = dot_product / (magnitude + eps)
         return cosine_similarity.mean().item()
 
     def codebook_usage(self, indices):
+        if indices is None:
+            return 0
+        
         values, counts = torch.unique(indices, return_counts=True)
         total_counts = torch.full((self.model.vq.codebook_size,), 0, device=indices.device)
         total_counts[values] = counts
@@ -203,6 +247,9 @@ class LAMTraining(L.LightningModule):
 
     def good_turing_coverage(self, indices):
         '''Crude Good Turing: coverage ≈ 1 - (singletons / items_sampled)'''
+        if indices is None:
+            return 0
+        
         values, counts = torch.unique(indices, return_counts=True)
         singletons = (counts == 1).sum().item()
         total = indices.numel()
@@ -210,6 +257,9 @@ class LAMTraining(L.LightningModule):
 
     def distinctiveness_cosine(self, codes):
         '''Measure how distinct the codes are using cosine similarity'''
+        if codes is None or codes.shape[0] > 5000:
+            return 0
+
         normalized_vectors = codes / torch.norm(codes, dim=1, keepdim=True)
 
         similarity_matrix = normalized_vectors @ normalized_vectors.T
