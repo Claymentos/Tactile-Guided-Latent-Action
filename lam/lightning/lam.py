@@ -3,10 +3,9 @@ import lightning as L
 import wandb
 
 from torch import nn
-from einops import rearrange
 from torchvision.utils import make_grid
-from torchmetrics.functional.image import structural_similarity_index_measure as ssim
 
+from lam.metrics import _compute_metrics
 
 class LAMTraining(L.LightningModule):
     def __init__(self,  
@@ -14,7 +13,9 @@ class LAMTraining(L.LightningModule):
                  learning_rate: float = 1e-3, 
                  weight_decay: float = 0.01,
                  scheduler_max_steps: int = 200_000,
-                 codebook_replace_freq: float = 0.05
+                 codebook_replace_freq: float = 0.05,
+                 metrics: dict = {},
+                 compute_metrics_every_n_steps: int = 100,
                 ):
         super().__init__()
         self.save_hyperparameters(ignore=['model'])
@@ -24,6 +25,8 @@ class LAMTraining(L.LightningModule):
         self.weight_decay = weight_decay
         self.steps = scheduler_max_steps
         self.codebook_replace_freq = codebook_replace_freq      # Only used in NSVQ
+        self.metrics = metrics
+        self.compute_metrics_every_n_steps = compute_metrics_every_n_steps
 
 
     def training_step(self, batch, batch_idx):
@@ -48,8 +51,9 @@ class LAMTraining(L.LightningModule):
         self.log("train/recon_loss", recon_loss)
         self.log("train/commit_loss", commit_loss)
 
-        with torch.no_grad():
-            self.compute_metrics(target_view, recon_video, features, recon_features, indices, prefix="train")
+        if batch_idx % self.compute_metrics_every_n_steps == 0:
+            with torch.no_grad():
+                self.compute_metrics(target_view, recon_video, features, recon_features, indices, prefix="train")
 
         self.replace_unused_codebook_entries()      # Only used in NSVQ
 
@@ -148,127 +152,32 @@ class LAMTraining(L.LightningModule):
 
         return imagination[:, 1:]
 
+    def reconstruct_with_same_action(self, features, indices):
+        half_indices = indices[:indices.shape[0]//2]
+        duplicate_indices = half_indices.repeat((2, 1))
+
+        action_tokens = self.model.vq.dequantize(duplicate_indices) 
+        recon_features = self.model.decode(features[:, :-1], action_tokens)
+        recon_video = self.model.feature_extractor._post_process(recon_features)
+
+        return recon_video
+
     def compute_metrics(self, batch, recon_video, features, recon_features, indices, prefix, return_random_reconstruction=False):
         if recon_video is not None:
             feature_imagination, video_imagination = self.reconstruct_with_random_actions(batch, features, return_video=True)
-
-            delta_psnr = self.delta_psnr(batch[:, 1:], recon_video, video_imagination)
-            self.log(f"{prefix}/delta_psnr", delta_psnr)        # Image similarity metric
-
-            ssim_score = ssim(rearrange(recon_video, 'b t c h w -> (b t) c h w'), rearrange(batch[:, 1:], 'b t c h w -> (b t) c h w'))
-            self.log(f"{prefix}/ssim", ssim_score)              # Image controlability metric
+            same_action_recon = self.reconstruct_with_same_action(features, indices)
         else:
             feature_imagination = self.reconstruct_with_random_actions(batch, features, return_video=False)
+            same_action_recon = None
 
-        # Feature similarity metrics
-        feature_l1_loss = nn.functional.l1_loss(recon_features, features[:, 1:])
-        self.log(f"{prefix}/feature_l1_loss", feature_l1_loss)
+        metrics = _compute_metrics(self.metrics, batch, recon_video, features, recon_features, indices, feature_imagination, video_imagination, self.model.vq.codebook_size, self.model.vq.get_codebook(), same_action_recon)
 
-        ev = self.explained_variance(features[:, 1:], recon_features)
-        self.log(f"{prefix}/feature_explained_variance", ev)
-
-        feature_cosine_similarity = self.mean_feature_cosine_similarity(features[:, 1:], recon_features)
-        self.log(f"{prefix}/feature_cosine_similarity", feature_cosine_similarity)
-
-        # Feature controlability metrics
-        mse_ratio = self.mse_ratio(features, recon_features, feature_imagination)
-        self.log(f"{prefix}/mse_ratio", mse_ratio)              # The higher the better, should at least be higher than 1 | 1 is bad, below 1 is weird
-
-        delta_snr = self.delta_snr(features[:, 1:], recon_features, feature_imagination)
-        self.log(f"{prefix}/feature_delta_snr", delta_snr)
-
-        imagination_cosine_similarity = self.mean_feature_cosine_similarity(recon_features, feature_imagination)
-        self.log(f"{prefix}/feature_imagination_and_reconstruction_cosine_similarity", imagination_cosine_similarity)
-
-        # Codebook usage metrics
-        codebook_usage = self.codebook_usage(indices)
-        self.log(f"{prefix}/codebook_usage", codebook_usage)
-
-        good_turing_coverage = self.good_turing_coverage(indices)
-        self.log(f"{prefix}/good_turing_codebook_coverage", good_turing_coverage)
-
-        distinctiveness_cosine = self.distinctiveness_cosine(self.model.vq.get_codebook())
-        self.log(f"{prefix}/distinctiveness_cosine", distinctiveness_cosine)
+        for key, value in metrics.items():
+            self.log(f"{prefix}/{key}", value)
 
         if return_random_reconstruction and recon_video is not None:
             return video_imagination
-
-    def psnr(self, image, reconstruction):
-        return 10 * torch.log10((1.0**2) / torch.nn.functional.mse_loss(reconstruction, image)).item()
-
-    def snr(self, features, reconstruction):
-        return 10 * torch.log10(torch.var(features, dim=0, unbiased=False).mean().item() / torch.nn.functional.mse_loss(reconstruction, features)).item()
-
-    def delta_psnr(self, video, recon_video, video_imagination):
-        if video is None or recon_video is None or video_imagination is None:
-            return 0
-        
-        return self.psnr(video, recon_video) - self.psnr(video, video_imagination)
-
-    def delta_snr(self, features, recon_features, feature_imagination):
-        if features is None or recon_features is None or feature_imagination is None:
-            return 0
-        
-        return self.snr(features, recon_features) - self.snr(features, feature_imagination)
-
-    def mse_ratio(self, features, recon_features, feature_imagination):
-        if features is None or recon_features is None or feature_imagination is None:
-            return 0
-
-        return torch.nn.functional.mse_loss(recon_features, features[:, 1:]).item() / torch.nn.functional.mse_loss(feature_imagination, features[:, 1:]).item()
-
-    def explained_variance(self, features, reconstructed_features, eps=1e-12):
-        '''Compute the explained variance between features and reconstructed features'''
-        error_var = torch.var(features - reconstructed_features, dim=0, unbiased=False)
-        features_var = torch.var(features, dim=0, unbiased=False)
-        ev = 1 - error_var / (features_var + eps)
-        return ev.mean().item()
-
-    def mean_feature_cosine_similarity(self, features, reconstructed_features, eps=1e-12):
-        if features is None or reconstructed_features is None:
-            return 0
-        
-        dot_product = (features * reconstructed_features).sum(dim=-1)
-        magnitude = features.norm(dim=-1) * reconstructed_features.norm(dim=-1)
-        cosine_similarity = dot_product / (magnitude + eps)
-        return cosine_similarity.mean().item()
-
-    def codebook_usage(self, indices):
-        if indices is None:
-            return 0
-        
-        values, counts = torch.unique(indices, return_counts=True)
-        total_counts = torch.full((self.model.vq.codebook_size,), 0, device=indices.device)
-        total_counts[values] = counts
-
-        codebook_usage =  torch.mean((total_counts != 0).float())
-
-        return codebook_usage
-
-    def good_turing_coverage(self, indices):
-        '''Crude Good Turing: coverage ≈ 1 - (singletons / items_sampled)'''
-        if indices is None:
-            return 0
-        
-        values, counts = torch.unique(indices, return_counts=True)
-        singletons = (counts == 1).sum().item()
-        total = indices.numel()
-        return 1 - (singletons / total)
-
-    def distinctiveness_cosine(self, codes):
-        '''Measure how distinct the codes are using cosine similarity'''
-        if codes is None or codes.shape[0] > 5000:
-            return 0
-
-        normalized_vectors = codes / torch.norm(codes, dim=1, keepdim=True)
-
-        similarity_matrix = normalized_vectors @ normalized_vectors.T
-
-        mask = ~torch.eye(codes.shape[0], dtype=bool)
-        average_similarity = similarity_matrix[mask].mean()
-
-        return 1.0 - average_similarity
-
+    
     def replace_unused_codebook_entries(self):
         if self.global_step == 0:
             return
@@ -277,7 +186,6 @@ class LAMTraining(L.LightningModule):
 
         if ((self.global_step % replace_interval) == 0) and (self.global_step <= self.steps - 2 * replace_interval):
             self.model.vq.replace_codebook(replace_interval)
-
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)

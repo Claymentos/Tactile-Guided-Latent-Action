@@ -1,0 +1,17 @@
+# Image space metrics
+delta_psnr: true
+ssim: true
+avg_optical_flow_diff: true
+
+# Feature space metrics
+feature_l1_loss: false
+explained_variance: false
+feature_cosine_similarity: false
+mse_ratio: false
+delta_snr: false
+feature_imagination_and_reconstruction_cosine_similarity: false
+
+# Codebook metrics
+codebook_usage: true
+good_turing_coverage: false
+distinctiveness_cosine: true

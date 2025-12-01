@@ -4,6 +4,7 @@ defaults:
   - algo/quantization: vq
   - algo/feature_extractor: identity
   - data: rlds
+  - metrics: metrics
 
 checkpoint_path: null       # Set to resume a training run
 
@@ -14,12 +15,14 @@ lightning_module:
   weight_decay: 1e-4
   scheduler_max_steps: ${trainer.max_steps}
   codebook_replace_freq: 0.05
+  metrics: ${metrics}
+  compute_metrics_every_n_steps: ${trainer.log_every_n_steps}
 
 trainer:
   _target_: lightning.Trainer
   default_root_dir: ./runs
   fast_dev_run: false
-  log_every_n_steps: 1
+  log_every_n_steps: 100
   max_steps: 300_000
   gradient_clip_val: 1.0
   val_check_interval: 0.2
