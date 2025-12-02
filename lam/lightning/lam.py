@@ -61,7 +61,7 @@ class LAMTraining(L.LightningModule):
 
         self.replace_unused_codebook_entries()      # Only used in NSVQ
 
-        return output["perceptual_loss"]
+        return loss
 
     
     def validation_step(self, batch, batch_idx): 
