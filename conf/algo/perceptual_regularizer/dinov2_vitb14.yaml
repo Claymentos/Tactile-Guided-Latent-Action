@@ -1,0 +1,10 @@
+model:
+  _target_: lam.feature_extractor.dinov2.DinoV2
+  model_id: dinov2_vitb14
+  model_dim: 768
+  image_size: 224
+  patch_size: 14
+  channels: 3
+  decoder_path: null
+  loss_fn: 
+    _target_: torch.nn.MSELoss

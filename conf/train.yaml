@@ -3,6 +3,7 @@ defaults:
   - algo: lam_spatial_decoder
   - algo/quantization: vq
   - algo/feature_extractor: identity
+  - algo/perceptual_regularizer: none
   - data: rlds
   - metrics: metrics
 
@@ -17,6 +18,8 @@ lightning_module:
   codebook_replace_freq: 0.05
   metrics: ${metrics}
   compute_metrics_every_n_steps: ${trainer.log_every_n_steps}
+  commit_loss_weight: 10.0
+  perceptual_loss_weight: 0.01
 
 trainer:
   _target_: lightning.Trainer

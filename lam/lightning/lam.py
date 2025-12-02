@@ -16,6 +16,8 @@ class LAMTraining(L.LightningModule):
                  codebook_replace_freq: float = 0.05,
                  metrics: dict = {},
                  compute_metrics_every_n_steps: int = 100,
+                 commit_loss_weight: float = 1.0,
+                 perceptual_loss_weight: float = 1.0,
                 ):
         super().__init__()
         self.save_hyperparameters(ignore=['model'])
@@ -27,6 +29,8 @@ class LAMTraining(L.LightningModule):
         self.codebook_replace_freq = codebook_replace_freq      # Only used in NSVQ
         self.metrics = metrics
         self.compute_metrics_every_n_steps = compute_metrics_every_n_steps
+        self.commit_loss_weight = commit_loss_weight
+        self.perceptual_loss_weight = perceptual_loss_weight
 
 
     def training_step(self, batch, batch_idx):
@@ -42,22 +46,22 @@ class LAMTraining(L.LightningModule):
             recon_loss, commit_loss, recon_video, indices = self.model(source_view, target_view)
         else:
             target_view = batch["images"]                                                   # Traditional case, source view is equal to target view
-            recon_loss, commit_loss, indices, features, recon_features, recon_video = self.model(target_view)
-            
-        loss = recon_loss + commit_loss     # Add VQ-VAE loss
-                                            # Only needed for VQ
+            output = self.model(target_view)
+
+        loss = output["recon_loss"] + self.commit_loss_weight * output["commit_loss"] + self.perceptual_loss_weight * output["perceptual_loss"]
 
         self.log("train/loss", loss)
-        self.log("train/recon_loss", recon_loss)
-        self.log("train/commit_loss", commit_loss)
+        self.log("train/recon_loss", output["recon_loss"])
+        self.log("train/perceptual_loss", output["perceptual_loss"])
+        self.log("train/commit_loss", output["commit_loss"])
 
         if batch_idx % self.compute_metrics_every_n_steps == 0:
             with torch.no_grad():
-                self.compute_metrics(target_view, recon_video, features, recon_features, indices, prefix="train")
+                self.compute_metrics(target_view, output["recon_video"], output["features"], output["recon_features"], output["indices"], prefix="train")
 
         self.replace_unused_codebook_entries()      # Only used in NSVQ
 
-        return loss
+        return output["perceptual_loss"]
 
     
     def validation_step(self, batch, batch_idx): 
@@ -72,18 +76,19 @@ class LAMTraining(L.LightningModule):
             recon_loss, commit_loss, recon_video, indices = self.model(source_view, target_view)
         else:
             target_view = batch["images"]                                                   # Traditional case, source view is equal to target view
-            recon_loss, commit_loss, indices, features, recon_features, recon_video = self.model(target_view)
+            output = self.model(target_view)
 
-        loss = recon_loss + commit_loss
+        loss = output["recon_loss"] + output["commit_loss"] + output["perceptual_loss"]
 
         self.log("val/loss", loss)
-        self.log("val/recon_loss", recon_loss)
-        self.log("val/commit_loss", commit_loss)
+        self.log("val/recon_loss", output["recon_loss"])
+        self.log("val/perceptual_loss", output["perceptual_loss"])
+        self.log("val/commit_loss", output["commit_loss"])
 
-        random_reconstruction = self.compute_metrics(target_view, recon_video, features, recon_features, indices, prefix="val", return_random_reconstruction=True)
+        random_reconstruction = self.compute_metrics(target_view, output["recon_video"], output["features"], output["recon_features"], output["indices"], prefix="val", return_random_reconstruction=True)
 
         if batch_idx == 0:
-            self.log_videos(target_view, recon_video, random_reconstruction)
+            self.log_videos(target_view, output["recon_video"], random_reconstruction)
 
         return loss
     

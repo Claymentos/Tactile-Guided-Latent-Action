@@ -4,3 +4,5 @@ model:
   image_size: 128
   patch_size: 16
   channels: 3
+  loss_fn: 
+    _target_: torch.nn.MSELoss

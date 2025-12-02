@@ -1,6 +1,7 @@
 model:
   _target_: lam.lam.LAM
   feature_extractor: ${algo.feature_extractor.model}
+  perceptual_regularizer: ${algo.perceptual_regularizer.model}
   encoder:
     _target_: lam.st.STTransformer
     model_dim: ${algo.feature_extractor.model.model_dim}

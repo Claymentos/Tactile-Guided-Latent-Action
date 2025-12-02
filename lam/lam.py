@@ -10,6 +10,7 @@ class LAM(nn.Module):
                  decoder,
                  vq,
                  feature_extractor,
+                 perceptual_regularizer,
                  num_register_tokens,
                  register_dropout_mean,
                  register_dropout_std):
@@ -18,6 +19,7 @@ class LAM(nn.Module):
         self.decoder = decoder
         self.vq = vq
         self.feature_extractor = feature_extractor
+        self.perceptual_regularizer = perceptual_regularizer
 
         self.num_register_tokens = num_register_tokens
         self.register_dropout_mean = register_dropout_mean
@@ -33,7 +35,8 @@ class LAM(nn.Module):
         arguments:
         x: torch.Tensor, shape (batch_size, seq_len, channels, height, width)
         '''
-        features = self.feature_extractor(x)                                            # Extract image features or simply patchfy and project if working in image space
+        with torch.no_grad():
+            features = self.feature_extractor(x)                                            # Extract image features or simply patchfy and project if working in image space
 
         B, T, P, F = features.shape
         attention_mask = torch.zeros((B, P), dtype=torch.bool, device=x.device)         # Attention mask for the patches (False means keep, True means mask)
@@ -60,9 +63,16 @@ class LAM(nn.Module):
         logits = logits[:, :, self.num_register_tokens:, :]                                                                                     # Remove the register tokens from the decoder output
         recon_loss, recon_video = self.feature_extractor.compute_loss(logits, x[:, 1:], features[:, 1:])                                        # The first frame of x is not used as a target
         
-        return recon_loss, commit_loss, indices, features, logits, recon_video
+        if self.perceptual_regularizer is not None:
+            with torch.no_grad():
+                ground_truth_features = self.perceptual_regularizer(x[:, 1:])
+            reconstruction_features = self.perceptual_regularizer(recon_video)
+            perceptual_loss, _ = self.perceptual_regularizer.compute_loss(ground_truth_features, None, reconstruction_features)
+        else:
+            perceptual_loss = 0.0
 
-        
+        return dict(recon_loss=recon_loss, perceptual_loss=perceptual_loss, commit_loss=commit_loss, indices=indices, features=features, recon_features=logits, recon_video=recon_video)
+
     def encode(self, x, registers=None, attention_mask=None):
         return self.encoder(x, registers=registers, attention_mask=attention_mask)
 

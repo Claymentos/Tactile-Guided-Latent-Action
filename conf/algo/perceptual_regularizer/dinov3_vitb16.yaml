@@ -1,0 +1,12 @@
+model:
+  _target_: lam.feature_extractor.dinov3.DinoV3
+  model_id: dinov3_vitb16
+  repo_path: /home/bmachado/Documents/Experiments/dinov3/
+  weights_path: /home/bmachado/Documents/Experiments/dinov3/checkpoints/dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth
+  model_dim: 768
+  image_size: 224
+  patch_size: 16
+  channels: 3
+  decoder_path: null
+  loss_fn: 
+    _target_: torch.nn.MSELoss

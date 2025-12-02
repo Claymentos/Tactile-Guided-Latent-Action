@@ -17,9 +17,11 @@ class DinoV2(Extractor):
                  patch_size,
                  model_dim,
                  channels=3,
-                 decoder_path=None):
+                 decoder_path=None,
+                 loss_fn=nn.MSELoss()):
         super().__init__()
         self.feature_extractor = torch.hub.load('facebookresearch/dinov2', model_id)
+        self.loss_fn = loss_fn
 
         # Freeze the image encoder parameters
         for param in self.feature_extractor.parameters():
@@ -58,11 +60,10 @@ class DinoV2(Extractor):
         """
         self.feature_extractor.eval()
 
-        with torch.no_grad():
-            b, t, c, h, w = x.shape
-            x = rearrange(x, 'b t c h w -> (b t) c h w')
-            features = self.feature_extractor(x, is_training=True)["x_prenorm"][:, self.feature_extractor.num_register_tokens + 1 :]
-            features = rearrange(features, '(b t) n d -> b t n d', b=b, t=t)
+        b, t, c, h, w = x.shape
+        x = rearrange(x, 'b t c h w -> (b t) c h w')
+        features = self.feature_extractor(x, is_training=True)["x_prenorm"][:, self.feature_extractor.num_register_tokens + 1 :]
+        features = rearrange(features, '(b t) n d -> b t n d', b=b, t=t)
 
         return features
     
@@ -78,13 +79,12 @@ class DinoV2(Extractor):
         self.decoder.eval()
         self.to_image.eval()
 
-        with torch.no_grad():
-            b, t, n, f = logits.shape
-            logits = rearrange(logits, 'b t n f -> (b t) n f')
-            for block in self.decoder.blocks:
-                logits = block(logits)
-            logits = rearrange(logits, '(b t) n f -> b t n f', b=b, t=t)
-            recon_image = self.to_image(logits)
+        b, t, n, f = logits.shape
+        logits = rearrange(logits, 'b t n f -> (b t) n f')
+        for block in self.decoder.blocks:
+            logits = block(logits)
+        logits = rearrange(logits, '(b t) n f -> b t n f', b=b, t=t)
+        recon_image = self.to_image(logits)
 
         return recon_image
     
@@ -100,7 +100,7 @@ class DinoV2(Extractor):
         returns: torch.Tensor, scalar loss value
                  torch.Tensor | None, shape (batch_size, seq_len, channels, height, width) - reconstructed images
         """
-        recon_loss = nn.functional.mse_loss(logits, features)
-        recon_image = self._post_process(logits)       
+        recon_loss = self.loss_fn(logits, features)
+        recon_image = self._post_process(logits)
 
         return recon_loss, recon_image

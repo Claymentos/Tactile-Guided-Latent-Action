@@ -33,7 +33,8 @@ class Identity(Extractor):
                  image_size,
                  patch_size,
                  model_dim,
-                 channels=3):
+                 channels=3,
+                 loss_fn=nn.MSELoss()):
         super().__init__()
         image_height, image_width = image_size if isinstance(image_size, tuple) else (image_size, image_size)
         patch_height, patch_width = patch_size if isinstance(patch_size, tuple) else (patch_size, patch_size)
@@ -53,6 +54,8 @@ class Identity(Extractor):
             Rearrange('b t (nh nw) (p1 p2 c) -> b t c (nh p1) (nw p2)',
                       p1=patch_size, p2=patch_width, c=channels, nh=image_height//patch_height, nw=image_width//patch_width),
         )
+
+        self.loss_fn = loss_fn
 
     def forward(self, x):
         """
@@ -85,5 +88,5 @@ class Identity(Extractor):
                  torch.Tensor, shape (batch_size, seq_len, channels, height, width) - reconstructed images
         """
         reconstruction = self._post_process(logits)
-        recon_loss = nn.functional.mse_loss(reconstruction, images)
+        recon_loss = self.loss_fn(reconstruction, images)
         return recon_loss, reconstruction

@@ -6,3 +6,5 @@ model:
   patch_size: 14
   channels: 3
   decoder_path: null
+  loss_fn: 
+    _target_: torch.nn.MSELoss
