@@ -1,9 +1,0 @@
-vq:
-  _target_: lam.quantization.wrappers.Linear
-  model:
-    _target_: lam.quantization.linear.LinearDimensionReduction
-    input_dim: ${algo.feature_extractor.model.model_dim}
-    hidden_dim: 32
-    use_sigreg: false
-    sigreg_num_points: 17
-    sigreg_num_slices: 1024

@@ -71,7 +71,7 @@ class LAM(nn.Module):
         else:
             perceptual_loss = 0.0
 
-        return dict(recon_loss=recon_loss, perceptual_loss=perceptual_loss, commit_loss=commit_loss, indices=indices, features=features, recon_features=logits, recon_video=recon_video)
+        return dict(recon_loss=recon_loss, perceptual_loss=perceptual_loss, commit_loss=commit_loss, indices=indices, action_tokens=action_tokens, features=features, recon_features=logits, recon_video=recon_video)
 
     def encode(self, x, registers=None, attention_mask=None):
         return self.encoder(x, registers=registers, attention_mask=attention_mask)

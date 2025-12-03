@@ -7,3 +7,6 @@ vq:
     codebook_dim: 32
     discarding_threshold: 0.01 
     initialization: normal
+    sig_reg: false
+    sig_reg_num_points: 17
+    sig_reg_num_slices: 1024

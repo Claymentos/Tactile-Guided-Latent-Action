@@ -117,8 +117,8 @@ class RLDSDataset(IterableDataset):
             shuffle_buffer_size=shuffle_buffer_size,
             sample_weights=weights,
             balance_weights=True,
-            traj_transform_threads=len(mixture_spec),
-            traj_read_threads=len(mixture_spec),
+            traj_transform_threads=len(mixture_spec) if len(mixture_spec) > 1 else 8,
+            traj_read_threads=len(mixture_spec) if len(mixture_spec) > 1 else 8,
             train=train,
         )
 

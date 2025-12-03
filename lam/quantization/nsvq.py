@@ -10,7 +10,10 @@ class NSVQ(torch.nn.Module):
                  codebook_dim, 
                  input_dim,
                  discarding_threshold=0.01, 
-                 initialization='normal'):
+                 initialization='normal',
+                 sig_reg=False,
+                 sig_reg_num_points=17,
+                 sig_reg_num_slices=1024):
         super(NSVQ, self).__init__()
 
         """
@@ -41,6 +44,11 @@ class NSVQ(torch.nn.Module):
 
         # Counter variable which contains the number of times each codebook is used
         self.codebook_used = torch.nn.Parameter(torch.zeros(self.num_embeddings, dtype=torch.int32), requires_grad=False)
+
+        if sig_reg:
+            import lejepa
+            univariate_test = lejepa.univariate.EppsPulley(n_points=sig_reg_num_points)
+            self.sig_reg = lejepa.multivariate.SlicingUnivariateTest(univariate_test=univariate_test, num_slices=sig_reg_num_slices)
 
     def forward(self, input_data):
 
@@ -86,13 +94,15 @@ class NSVQ(torch.nn.Module):
         with torch.no_grad():
             self.codebook_used[min_indices] += 1
 
+        regularization_loss = self.sig_reg(quantized_input) if hasattr(self, "sig_reg") else 0.0
+
         quantized_input = self.project_out(quantized_input)
 
         # use the first returned tensor "quantized_input" for training phase (Notice that you do not have to use the
         # tensor "quantized_input" for inference (evaluation) phase)
         # Also notice you do not need to add a new loss term (for VQ) to your global loss function to optimize codebook.
         # Just return the tensor of "quantized_input" as vector quantized version of the input data.
-        return quantized_input, min_indices, perplexity
+        return quantized_input, min_indices, perplexity, regularization_loss
 
 
     def replace_unused_codebook(self, num_batches):

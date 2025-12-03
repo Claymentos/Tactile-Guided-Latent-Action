@@ -81,12 +81,12 @@ class NSVQ(Quantizer):
         b, t, f = x.shape
         x = rearrange(x, 'b t f -> (b t) f')
 
-        tokens, indices, _ = self.quantizer(x)
+        tokens, indices, _, regularization_loss = self.quantizer(x)
 
         tokens = rearrange(tokens, '(b t) f -> b t f', b=b, t=t)
         indices = rearrange(indices, '(b t) -> b t', b=b, t=t)
 
-        return tokens, indices, 0
+        return tokens, indices, regularization_loss
     
     def dequantize(self, indices):
         tokens = self.quantizer.project_out(self.quantizer.codebook[indices])
@@ -99,10 +99,11 @@ class NSVQ(Quantizer):
         self.quantizer.replace_unused_codebook(replace_interval)
 
 
-class Linear(Quantizer):
+class Continuous(Quantizer):
     def __init__(self,
                  model):
         super().__init__(model)
+        self.codebook_size = None
 
     def quantize(self, x):
         tokens, _, regularization_loss = self.quantizer(x)

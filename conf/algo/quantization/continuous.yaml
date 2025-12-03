@@ -1,0 +1,9 @@
+vq:
+  _target_: lam.quantization.wrappers.Continuous
+  model:
+    _target_: lam.quantization.continuous.ContinuousDimensionReduction
+    input_dim: ${algo.feature_extractor.model.model_dim}
+    hidden_dim: 32
+    sig_reg: false
+    sig_reg_num_points: 17
+    sig_reg_num_slices: 1024

@@ -47,7 +47,7 @@ def mean_feature_cosine_similarity(features, reconstructed_features, eps=1e-12):
     return cosine_similarity.mean().item()
 
 def codebook_usage(indices, codebook_size):
-    if indices is None:
+    if indices is None or codebook_size is None:
         return 0
     
     values, counts = torch.unique(indices, return_counts=True)

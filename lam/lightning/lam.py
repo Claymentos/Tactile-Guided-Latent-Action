@@ -57,7 +57,7 @@ class LAMTraining(L.LightningModule):
 
         if batch_idx % self.compute_metrics_every_n_steps == 0:
             with torch.no_grad():
-                self.compute_metrics(target_view, output["recon_video"], output["features"], output["recon_features"], output["indices"], prefix="train")
+                self.compute_metrics(target_view, output["recon_video"], output["features"], output["recon_features"], output["indices"], output["action_tokens"], prefix="train")
 
         self.replace_unused_codebook_entries()      # Only used in NSVQ
 
@@ -85,7 +85,7 @@ class LAMTraining(L.LightningModule):
         self.log("val/perceptual_loss", output["perceptual_loss"])
         self.log("val/commit_loss", output["commit_loss"])
 
-        random_reconstruction = self.compute_metrics(target_view, output["recon_video"], output["features"], output["recon_features"], output["indices"], prefix="val", return_random_reconstruction=True)
+        random_reconstruction = self.compute_metrics(target_view, output["recon_video"], output["features"], output["recon_features"], output["indices"], output["action_tokens"], prefix="val", return_random_reconstruction=True)
 
         if batch_idx == 0:
             self.log_videos(target_view, output["recon_video"], random_reconstruction)
@@ -127,14 +127,14 @@ class LAMTraining(L.LightningModule):
         video = wandb.Video(x, fps=2, caption=caption)
         self.logger.experiment.log({"val_videos": video})
 
-    def reconstruct_with_random_actions(self, batch, features, return_video=True):
+    def reconstruct_with_random_actions(self, batch, features, action_tokens, return_video=True):
         if self.model.vq.get_codebook() is None:
-            if return_video:
-                return None, None
-            return None
+            idx = torch.randperm(action_tokens.shape[0])
+            random_action_tokens = action_tokens[idx]
+        else:
+            random_indices = torch.randint(0, self.model.vq.codebook_size, (batch.size(0), batch.size(1)-1), device=batch.device)
+            random_action_tokens = self.model.vq.dequantize(random_indices)
 
-        random_indices = torch.randint(0, self.model.vq.codebook_size, (batch.size(0), batch.size(1)-1), device=batch.device)
-        random_action_tokens = self.model.vq.dequantize(random_indices) 
         recon_features = self.model.decode(features[:, :-1], random_action_tokens)
 
         if not return_video:
@@ -157,22 +157,27 @@ class LAMTraining(L.LightningModule):
 
         return imagination[:, 1:]
 
-    def reconstruct_with_same_action(self, features, indices):
-        half_indices = indices[:indices.shape[0]//2]
-        duplicate_indices = half_indices.repeat((2, 1))
-
-        action_tokens = self.model.vq.dequantize(duplicate_indices) 
+    def reconstruct_with_same_action(self, features, indices, action_tokens):
+        if indices:
+            half_indices = indices[:indices.shape[0]//2]
+            duplicate_indices = half_indices.repeat((2, 1))
+            action_tokens = self.model.vq.dequantize(duplicate_indices)
+        else:
+            half_action_tokens = action_tokens[:action_tokens.shape[0]//2]
+            duplicate_action_tokens = half_action_tokens.repeat((2, 1, 1))
+            action_tokens = duplicate_action_tokens
+            
         recon_features = self.model.decode(features[:, :-1], action_tokens)
         recon_video = self.model.feature_extractor._post_process(recon_features)
 
         return recon_video
 
-    def compute_metrics(self, batch, recon_video, features, recon_features, indices, prefix, return_random_reconstruction=False):
+    def compute_metrics(self, batch, recon_video, features, recon_features, indices, action_tokens, prefix, return_random_reconstruction=False):
         if recon_video is not None:
-            feature_imagination, video_imagination = self.reconstruct_with_random_actions(batch, features, return_video=True)
-            same_action_recon = self.reconstruct_with_same_action(features, indices)
+            feature_imagination, video_imagination = self.reconstruct_with_random_actions(batch, features, action_tokens, return_video=True)
+            same_action_recon = self.reconstruct_with_same_action(features, indices, action_tokens)
         else:
-            feature_imagination = self.reconstruct_with_random_actions(batch, features, return_video=False)
+            feature_imagination = self.reconstruct_with_random_actions(batch, features, action_tokens, return_video=False)
             same_action_recon = None
 
         metrics = _compute_metrics(self.metrics, batch, recon_video, features, recon_features, indices, feature_imagination, video_imagination, self.model.vq.codebook_size, self.model.vq.get_codebook(), same_action_recon)
