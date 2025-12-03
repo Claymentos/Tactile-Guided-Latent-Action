@@ -158,7 +158,7 @@ class LAMTraining(L.LightningModule):
         return imagination[:, 1:]
 
     def reconstruct_with_same_action(self, features, indices, action_tokens):
-        if indices:
+        if indices is not None:
             half_indices = indices[:indices.shape[0]//2]
             duplicate_indices = half_indices.repeat((2, 1))
             action_tokens = self.model.vq.dequantize(duplicate_indices)
@@ -166,7 +166,7 @@ class LAMTraining(L.LightningModule):
             half_action_tokens = action_tokens[:action_tokens.shape[0]//2]
             duplicate_action_tokens = half_action_tokens.repeat((2, 1, 1))
             action_tokens = duplicate_action_tokens
-            
+
         recon_features = self.model.decode(features[:, :-1], action_tokens)
         recon_video = self.model.feature_extractor._post_process(recon_features)
 
