@@ -44,6 +44,9 @@ def zero_proprio_filter(traj: Dict) -> bool:
     if "proprio" not in traj["observation"]:
         raise ValueError("Proprioception not found in trajectory observations. Use a different filter or load proprioception.")
 
+    if len(traj["observation"]["proprio"]) < 2:
+        raise ValueError("Proprioception difference filter can't be used when window_size < 2. Use a different filter or increase the window_size.")
+
     proprio_diff = traj["observation"]["proprio"][-1] - traj["observation"]["proprio"][0]
 
     # if not tf.reduce_any(tf.math.abs(proprio_diff) > 1e-5):
