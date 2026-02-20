@@ -66,6 +66,11 @@ DATASET_FREQUENCY_MAP = {'fractal20220817_data': 3,
                          'berkeley_gnm_cory_hall': 5,
                          'berkeley_gnm_sac_son': 10,
                          'ego4d': 2,
+                         'libero_spatial_no_noops': 10,
+                         'libero_object_no_noops': 10,
+                         'libero_goal_no_noops': 10,
+                         'libero_10_no_noops': 10,
+                         'libero_90_no_noops': 10,
                         }
 
 
