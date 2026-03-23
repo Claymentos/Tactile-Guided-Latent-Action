@@ -10,10 +10,10 @@ class LAM(nn.Module):
                  decoder,
                  vq,
                  feature_extractor,
-                 perceptual_regularizer,
-                 num_register_tokens,
-                 register_dropout_mean,
-                 register_dropout_std):
+                 perceptual_regularizer=None,
+                 num_register_tokens=0,
+                 register_dropout_mean=0.0,
+                 register_dropout_std=0.0):
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
