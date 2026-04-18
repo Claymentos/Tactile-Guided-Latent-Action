@@ -71,7 +71,7 @@ class RLDSDataset(IterableDataset):
         data_root_dir: Path,
         data_mix: str,
         batch_transform: RLDSBatchTransform,
-        resize_resolution: Tuple[int, int],
+        resize_resolution: Tuple[int, int] = (128, 128),
         shuffle_buffer_size: int = 256_000,
         train: bool = True,
         image_aug: bool = False,
