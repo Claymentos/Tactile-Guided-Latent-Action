@@ -1,6 +1,6 @@
 data_module: 
   _target_: lam.lightning.rlds.RLDSModule
-  data_dir: null
+  data_dir: '/lustre/fsn1/projects/rech/iyg/uvx44rt/ego4d_rlds'
   batch_size: 64
   validation: true
   image_size: ${algo.feature_extractor.model.image_size}
@@ -8,7 +8,7 @@ data_module:
   episodic: False
   image_aug: False
   window_size: 8
-  data_mix: droid
+  data_mix: ego4d
   multiview: false
   randomize_view_order: false
   add_actions: false

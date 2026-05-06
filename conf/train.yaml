@@ -7,7 +7,7 @@ defaults:
   - data: rlds
   - metrics: metrics
 
-checkpoint_path: null       # Set to resume a training run
+checkpoint_path: "/lustre/fswork/projects/rech/iyg/uvx44rt/LAM/checkpoints/lam_ego_bs64"       # Set to resume a training run
 
 lightning_module: 
   _target_: lam.lightning.lam.LAMTraining
@@ -32,7 +32,7 @@ trainer:
   precision: bf16-mixed
   logger:
     _target_: lightning.pytorch.loggers.WandbLogger
-    name: test_libero
+    name: lam_ego_bs64
     save_dir: ${trainer.default_root_dir}
     mode: offline 
     project: LAM
