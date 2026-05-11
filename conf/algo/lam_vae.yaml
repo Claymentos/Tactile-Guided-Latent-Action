@@ -1,0 +1,26 @@
+model:
+  _target_: lam.lam.LAMVAE
+  encoder:
+    _target_: lam.modules.blocks.SpatioTemporalTransformer
+    in_dim: 3
+    model_dim:
+    latent_dim:
+    enc_blocks:
+    dec_blocks:
+    num_heads:
+    dropout:
+  decoder:
+    _target_: lam.st.STTransformer
+    model_dim: ${algo.feature_extractor.model.model_dim}
+    n_layer: ${algo.model.encoder.n_layer}
+    num_spatial_heads: ${algo.model.encoder.num_spatial_heads}
+    num_temporal_heads: ${algo.model.decoder.num_spatial_heads}
+    dropout: ${algo.model.encoder.dropout}
+    image_size: ${algo.feature_extractor.model.image_size}
+    patch_size: ${algo.feature_extractor.model.patch_size}
+    max_seq_len: ${algo.model.encoder.max_seq_len}
+    add_readout_token: false
+  vq: ${algo.quantization.vq}
+  num_register_tokens: 0
+  register_dropout_mean: 0.0
+  register_dropout_std: 0.0
