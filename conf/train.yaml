@@ -4,7 +4,7 @@ defaults:
   - algo/quantization: vq
   - algo/feature_extractor: identity
   - algo/perceptual_regularizer: none
-  - data: egodex
+  - data: rlds
   - metrics: metrics
 
 checkpoint_path: null       # Set to resume a training run
@@ -32,7 +32,7 @@ trainer:
   precision: bf16-mixed
   logger:
     _target_: lightning.pytorch.loggers.WandbLogger
-    name: egodex
+    name: lam_ego4d
     save_dir: ${trainer.default_root_dir}
     mode: offline 
     project: LAM
