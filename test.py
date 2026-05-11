@@ -48,7 +48,7 @@ def main(cfg):
 
     model_config = OmegaConf.load(model_config_path)
     backbone = instantiate(model_config.algo.model)
-    model = call(cfg.lightning_module, model=backbone)
+    model = call(cfg.lightning_module, model=backbone, weights_only=False)
     model.freeze()
 
     input_image = Image.open(cfg.image_path).convert("RGB")

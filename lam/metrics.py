@@ -83,6 +83,7 @@ def distinctiveness_cosine(codes):
     return 1.0 - average_similarity
 
 def compute_optical_flow(first_frame, second_frame):
+    print(f"frames shape: {first_frame.shape}, {second_frame.shape}")
     first_frame = (first_frame * 255).transpose(1, 3).transpose(1, 2).to("cpu", dtype=torch.uint8).numpy()
     second_frame = (second_frame * 255).transpose(1, 3).transpose(1, 2).to("cpu", dtype=torch.uint8).numpy()
 
@@ -134,11 +135,13 @@ def average_optical_flow_difference_same_action(batch, same_action_recon):
     return cos_sim, mag_diff
 
 def delta_average_optical_flow_difference(batch, recon_video):
+    if recon_video.dim() == 5:
+        recon_video = recon_video[:, 0]  # [B, C, H, W]
+
     original_flow = compute_optical_flow(batch[:, 0], batch[:, 1])
     reconstruction_flow = compute_optical_flow(batch[:, 0], recon_video)
 
     cos_sim, mag_diff = compute_flow_difference(original_flow, reconstruction_flow)
-
     return cos_sim, mag_diff
 
 def _compute_metrics(metrics, batch, recon_video, features, recon_features, indices, feature_imagination, video_imagination, codebook_size, codebook, same_action_recon):
@@ -159,12 +162,12 @@ def _compute_metrics(metrics, batch, recon_video, features, recon_features, indi
         ret["avg_optical_flow_mag_diff_same_action"] = avg_optical_flow_mag_diff_same_action
 
     if metrics["avg_optical_flow_diff"] and recon_video is not None:
-        avg_optical_flow_cos_diff_recon, avg_optical_flow_mag_diff_recon = delta_average_optical_flow_difference(batch, recon_video.squeeze(1))
+        avg_optical_flow_cos_diff_recon, avg_optical_flow_mag_diff_recon = delta_average_optical_flow_difference(batch, recon_video)
         ret["avg_optical_flow_cos_diff_recon"] = avg_optical_flow_cos_diff_recon
         ret["avg_optical_flow_mag_diff_recon"] = avg_optical_flow_mag_diff_recon
 
     if metrics["avg_optical_flow_diff"] and video_imagination is not None:
-        avg_optical_flow_cos_diff_imag, avg_optical_flow_mag_diff_imag = delta_average_optical_flow_difference(batch, video_imagination.squeeze(1))
+        avg_optical_flow_cos_diff_imag, avg_optical_flow_mag_diff_imag = delta_average_optical_flow_difference(batch, video_imagination)
         ret["avg_optical_flow_cos_diff_imag"] = avg_optical_flow_cos_diff_imag
         ret["avg_optical_flow_mag_diff_imag"] = avg_optical_flow_mag_diff_imag
 

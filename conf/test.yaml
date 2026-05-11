@@ -4,7 +4,7 @@ defaults:
   - algo/quantization: vq
   - data: rlds
 
-image_path: /home/bmachado/Documents/Experiments/Datasets/Fractal/Example_2.png
+image_path: /home/cl-ment-prigent/LAM/Capture d’écran du 2026-05-06 16-26-34.png
 # image_path: /home/bmachado/Documents/Experiments/Datasets/LIBERO/images/spatial/image_0.png
 # image_path: /home/bmachado/Documents/Experiments/Datasets/LIBERO/images/Example_2.jpeg
 # image_path: /home/bmachado/Documents/Experiments/Datasets/Bridge/0.png
@@ -17,7 +17,7 @@ save_images: true
 lightning_module: 
   _target_: lam.lightning.lam.LAMTraining.load_from_checkpoint
   model: ${algo.model}
-  checkpoint_path: /home/bmachado/Documents/Experiments/LAM/runs/jean-zay/LAM/1o6l5rlz/epoch=8-step=240000.ckpt.decoder_only       # Fractal window_size 16
+  checkpoint_path: /home/cl-ment-prigent/LAM/checkpoints/epoch=3-step=30000.ckpt       # Fractal window_size 16
   # checkpoint_path: /home/bmachado/Documents/Experiments/LAM/runs/jean-zay/LAM/j8aaqclt/epoch=8-step=300000.ckpt     # Fractal 0.25 +  Bridge 0.25 + Libero 1.0 (+Libero_90)
   # checkpoint_path: /home/bmachado/Documents/Experiments/LAM/runs/jean-zay/LAM/a7fhs23v/epoch=13-step=240000.ckpt    # Fractal 0.25 +  Bridge 0.25 + Libero 1.0 (+Libero_90)
   # checkpoint_path: /home/bmachado/Documents/Experiments/LAM/runs/jean-zay/LAM/osm1w9g8/epoch=30-step=180000.ckpt    # Fractal 0.125 + Libero 1.0

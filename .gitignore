@@ -1,6 +1,8 @@
 .vscode
 runs
 outputs
-
+checkpoints/
+*.ckpt
+*.png
 __pycache__
 dummy_scripts

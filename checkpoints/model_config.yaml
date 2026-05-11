@@ -1,0 +1,134 @@
+checkpoint_path: null
+lightning_module:
+  _target_: lam.lightning.lam.LAMTraining
+  model: ${algo.model}
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  scheduler_max_steps: ${trainer.max_steps}
+  codebook_replace_freq: 0.05
+  metrics: ${metrics}
+  compute_metrics_every_n_steps: ${trainer.log_every_n_steps}
+  commit_loss_weight: 10.0
+  perceptual_loss_weight: 0.01
+trainer:
+  _target_: lightning.Trainer
+  default_root_dir: ./runs
+  fast_dev_run: false
+  log_every_n_steps: 100
+  max_steps: 300000
+  gradient_clip_val: 1.0
+  val_check_interval: 0.2
+  precision: bf16-mixed
+  logger:
+    _target_: lightning.pytorch.loggers.WandbLogger
+    name: test_libero
+    save_dir: ${trainer.default_root_dir}
+    mode: offline
+    project: LAM
+    resume: allow
+    save_code: true
+  callbacks:
+  - _target_: lightning.pytorch.callbacks.LearningRateMonitor
+    logging_interval: step
+  - _target_: lightning.pytorch.callbacks.ModelCheckpoint
+    every_n_train_steps: 30000
+algo:
+  model:
+    _target_: lam.lam.LAM
+    feature_extractor:
+      _target_: lam.feature_extractor.base.Identity
+      model_dim: 512
+      image_size: 128
+      patch_size: 16
+      channels: 3
+      loss_fn:
+        _target_: torch.nn.MSELoss
+    perceptual_regularizer: null
+    encoder:
+      _target_: lam.st.STTransformer
+      model_dim: 512
+      n_layer: 18
+      num_spatial_heads: 8
+      num_temporal_heads: 8
+      dropout: 0.1
+      image_size: 128
+      patch_size: 16
+      max_seq_len: 16
+      add_readout_token: true
+    decoder:
+      _target_: lam.st.Transformer
+      model_dim: 512
+      n_layer: 18
+      num_spatial_heads: 8
+      dropout: 0.1
+      image_size: 128
+      patch_size: 16
+    vq:
+      _target_: lam.quantization.wrappers.VQ
+      model:
+        _target_: vector_quantize_pytorch.VectorQuantize
+        dim: 512
+        codebook_size: 8
+        use_cosine_sim: true
+        commitment_weight: 0.25
+        codebook_dim: 32
+        decay: 0.8
+        kmeans_init: false
+        threshold_ema_dead_code: 2
+    num_register_tokens: 0
+    register_dropout_mean: 0.0
+    register_dropout_std: 0.0
+  quantization:
+    vq:
+      _target_: lam.quantization.wrappers.VQ
+      model:
+        _target_: vector_quantize_pytorch.VectorQuantize
+        dim: 512
+        codebook_size: 8
+        use_cosine_sim: true
+        commitment_weight: 0.25
+        codebook_dim: 32
+        decay: 0.8
+        kmeans_init: false
+        threshold_ema_dead_code: 2
+  feature_extractor:
+    model:
+      _target_: lam.feature_extractor.base.Identity
+      model_dim: 512
+      image_size: 128
+      patch_size: 16
+      channels: 3
+      loss_fn:
+        _target_: torch.nn.MSELoss
+  perceptual_regularizer:
+    model: null
+data:
+  data_module:
+    _target_: lam.lightning.rlds.RLDSModule
+    data_dir: /lustre/fsn1/projects/rech/iyg/uvx44rt/ego4d_rlds
+    batch_size: 64
+    validation: true
+    image_size: ${algo.feature_extractor.model.image_size}
+    shuffle_buffer_size: 100000
+    episodic: false
+    image_aug: false
+    window_size: 8
+    data_mix: ego4d
+    multiview: false
+    randomize_view_order: false
+    add_actions: false
+    load_proprioception: true
+    skip_based_on_frequency: true
+metrics:
+  delta_psnr: true
+  ssim: true
+  avg_optical_flow_diff: true
+  feature_l1_loss: false
+  explained_variance: false
+  feature_cosine_similarity: false
+  mse_ratio: false
+  delta_snr: false
+  feature_imagination_and_reconstruction_cosine_similarity: false
+  codebook_usage: true
+  good_turing_coverage: false
+  distinctiveness_cosine: true
