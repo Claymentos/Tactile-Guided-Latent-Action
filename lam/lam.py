@@ -5,9 +5,105 @@ from einops import repeat
 from torch import Tensor
 from typing import Dict
 
+import torch.nn.functional as F
 
 from lam.modules.blocks import patchify, unpatchify, SpatioTemporalTransformer, SpatioTransformer
 from torch import Tensor
+
+class LAMVAE(nn.Module):
+    def __init__(self,
+                 encoder,
+                 decoder,
+                 fc,
+                 patch_up,
+                 action_up,
+                 action_prompt,
+                 patch_size,
+                 feature_extractor=None
+    ):
+        super().__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+        self.fc = fc
+        self.patch_up = patch_up
+        self.action_up = action_up
+        self.action_prompt = action_prompt
+        nn.init.uniform(self.action_prompt, a=-1, b=1)
+        self.patch_size = patch_size
+        self.feature_extractor = feature_extractor
+
+
+    def extract_patches(self, x):
+        if self.feature_extractor is not None:
+            with torch.no_grad():
+                features = self.feature_extractor(x)
+                return features
+            
+        else:
+            return patchify(x, self.patch_size)
+        
+
+    def forward(self, x):
+        H, W = x.shape[3], x.shape[4]
+        outputs = self.encode(x)
+
+        video_patches  = self.patch_up(outputs["patches"][:, :-1])   # (B, T-1, P, model_dim)
+        action_patches = self.action_up(outputs["z_rep"])             # (B, T-1, 1, model_dim)
+        video_action_patches = video_patches + action_patches
+
+        del outputs["patches"]
+
+        video_recon = self.decoder(video_action_patches)
+        video_recon = torch.sigmoid(video_recon)
+
+        if self.feature_extractor is not None:
+
+            outputs["recon"] = video_recon
+        else:
+            outputs["recon"] = unpatchify(video_recon, self.patch_size, H, W)
+
+        future_frame = x[:,1:]
+        recon_loss = F.mse_loss(outputs["recon"], future_frame)
+        outputs["recon_loss"] = recon_loss
+        kl_loss = -0.5 * torch.sum(1 + outputs["z_var"] - outputs["z_mu"] ** 2 - outputs["z_var"].exp(), dim=1).mean()
+        outputs['kl_loss'] = kl_loss
+        loss = recon_loss + kl_loss
+        outputs['loss'] = loss
+
+        return outputs
+
+        
+
+    def encode(self, x):
+        B,T = x.shape[:2]
+        patches = self.extract_patches(x)
+        action_pad = self.action_prompt.expand(B,T,-1,-1)
+        padded_patches = torch.cat([action_pad, patches], dim=2)
+
+        z = self.encoder(padded_patches)
+        z = z[:, 1:, 0]    
+        z = z.reshape(B * (T - 1), self.model_dim)
+        moments = self.fc(z)
+        z_mu, z_var = torch.chunk(moments, 2, dim=1)
+        if not self.training:
+            z_rep = z_mu
+        else:
+            z_rep = z_mu + torch.randn_like(z_var) * torch.exp(0.5 * z_var)
+        z_rep = z_rep.reshape(B, T - 1, 1, self.latent_dim)
+
+        if not self.training:
+            if self.mu_record is None:
+                self.mu_record = z_mu
+            else:
+                self.mu_record = torch.cat([self.mu_record, z_mu], dim=0)
+        
+        return {
+            "patches": patches,
+            "z_rep": z_rep,
+            "z_mu": z_mu,
+            "z_var": z_var
+        }
+                                                            
 
 
 class LatentActionModel(nn.Module):
@@ -94,8 +190,8 @@ class LatentActionModel(nn.Module):
 
     def forward(self, batch: Dict) -> Dict:
         # Encode + VAE
-        H, W = batch["videos"].shape[2:4]
-        outputs = self.encode(batch["videos"])
+        H, W = batch["images"].shape[2:4]
+        outputs = self.encode(batch["images"])
         video_patches = self.patch_up(outputs["patches"][:, :-1])
         action_patches = self.action_up(outputs["z_rep"])
         video_action_patches = video_patches + action_patches

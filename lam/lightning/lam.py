@@ -1,11 +1,90 @@
 import torch
 import lightning as L
 import wandb
+from typing import Callable, Dict, Iterable, Tuple
 
 from torch import nn
 from torchvision.utils import make_grid
+from torch.optim import AdamW, Optimizer
 
 from lam.metrics import _compute_metrics
+OptimizerCallable = Callable[[Iterable], Optimizer]
+
+
+class LAMVAETraining(L.LightningModule):
+    def __init__(self,
+            model: nn.Module,
+            beta: float = 0.01,
+            log_interval: int = 1000,
+            log_path: str = "log_imgs",
+            optimizer: OptimizerCallable = AdamW):
+        super().__init__()
+        self.save_hyperparameters(ignore=['model'])
+        self.model = model
+        self.beta = beta
+        self.log_interval = log_interval
+        self.log_path = log_path
+        self.optimizer = optimizer
+
+    def training_step(self, batch, batch_idx):
+        target_view = batch["images"]
+        output = self.model(target_view)
+
+        loss = output["recon_loss"] + self.beta * output["kl_loss"]
+
+        self.log("train/loss", loss)
+        self.log("train/recon_loss", output["recon_loss"])
+        self.log("train/kl_loss", output["kl_loss"])
+
+        if batch_idx % self.log_interval == 0:
+            with torch.no_grad():
+                self.log_images(target_view, output["recon"])
+
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        target_view = batch["images"]
+        output = self.model(target_view)
+
+        loss = output["recon_loss"] + self.beta * output["kl_loss"]
+
+        self.log("val/loss", loss)
+        self.log("val/recon_loss", output["recon_loss"])
+        self.log("val/kl_loss", output["kl_loss"])
+
+        if batch_idx == 0:
+            self.log_images(target_view, output["recon"])
+
+        return loss
+
+    def log_images(self, target_view, recon):
+        # target_view : (B, T, C, H, W)
+        # recon       : (B, T-1, C, H, W) — frames futures reconstruites
+
+        # Le modèle prédit x[:,1:], on aligne target sur les mêmes frames
+        future_frames = target_view[:, 1:]
+
+        x = [make_grid([
+            (future_frames[0][t] * 255).to('cpu', torch.uint8),
+            (recon[0][t].clamp(0, 1) * 255).to('cpu', torch.uint8),
+            (future_frames[1][t] * 255).to('cpu', torch.uint8),
+            (recon[1][t].clamp(0, 1) * 255).to('cpu', torch.uint8),
+            (future_frames[2][t] * 255).to('cpu', torch.uint8),
+            (recon[2][t].clamp(0, 1) * 255).to('cpu', torch.uint8),
+            (future_frames[3][t] * 255).to('cpu', torch.uint8),
+            (recon[3][t].clamp(0, 1) * 255).to('cpu', torch.uint8),
+        ], nrow=2) for t in range(recon.size(1))]
+
+        x = torch.stack(x, dim=0)
+        video = wandb.Video(x, fps=2, caption="target | reconstruction")
+        self.logger.experiment.log(
+            {"val_images" if not self.model.training else "train_images": video},
+            step=self.global_step
+        )
+
+    def configure_optimizers(self):
+        return self.optimizer(self.parameters())
+
 
 class LAMTraining(L.LightningModule):
     def __init__(self,  
