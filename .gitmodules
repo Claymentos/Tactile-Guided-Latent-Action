@@ -1,3 +1,9 @@
 [submodule "dlimp"]
 	path = dlimp
 	url = https://github.com/kvablack/dlimp.git
+[submodule "AdaWorld"]
+	path = AdaWorld
+	url = https://github.com/Little-Podi/AdaWorld.git
+[submodule "UniVLA"]
+	path = UniVLA
+	url = https://github.com/Claymentos/UniVLA.git

@@ -1,9 +1,9 @@
 #!/bin/sh
-#SBATCH --job-name=test_train_lam_egodex
-#SBATCH --output=logs/test_train_lam_egodex.%j.out
-#SBATCH --error=logs/test_train_lam_egodex.%j.err 
+#SBATCH --job-name=test_train_lam_vae_ego4d
+#SBATCH --output=logs/test_train_lam_vae_ego4d.%j.out
+#SBATCH --error=logs/test_train_lam_vae_ego4d.%j.err 
 
-#SBATCH -A iyg@h100  # uli remplace par ton nom de projet 
+#SBATCH -A yfl@h100  # uli remplace par ton nom de projet 
 #SBATCH -C h100
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1

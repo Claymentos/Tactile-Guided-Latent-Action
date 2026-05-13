@@ -5,9 +5,8 @@ model:
     _target_: lam.modules.blocks.SpatioTemporalTransformer
     in_dim: 768
     model_dim: 512
-    latent_dim: 32
-    enc_blocks: 8
-    dec_blocks: 8
+    out_dim: 32
+    num_blocks: 8
     num_heads: 8
     dropout: 0.1
   decoder:
@@ -22,7 +21,7 @@ model:
     _target_: torch.nn.Parameter
     data: 
       _target_: torch.empty
-      size: [1,1,1, 768]
+      _args_: [1, 1, 1, 768]
   fc:
     _target_: torch.nn.Linear
     in_features: 512
