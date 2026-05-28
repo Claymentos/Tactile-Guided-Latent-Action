@@ -1,7 +1,7 @@
 #!/bin/sh
-#SBATCH --job-name=train_lam_ego4d
-#SBATCH --output=logs/train_lam_ego4d.%j.out
-#SBATCH --error=logs/train_lam_ego4d.%j.err 
+#SBATCH --job-name=train_act_vae
+#SBATCH --output=logs/train_act_vae.%j.out
+#SBATCH --error=logs/train_act_vae.%j.err 
 
 #SBATCH -A yfl@h100  # uli remplace par ton nom de projet 
 #SBATCH -C h100
@@ -27,7 +27,7 @@ module load miniforge/25.9.1
 module load ffmpeg/4.2.2
 
 conda activate lam 
-proj_name=LAM_ego4d
+proj_name=ACT_VAE
 device_id=0
 export WANDB_MODE=offline
 export WANDB_START_METHOD=thread

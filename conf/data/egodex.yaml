@@ -1,6 +1,6 @@
 data_module: 
   _target_: lam.lightning.egodex.EgoDexDataModule
-  data_path: /home/cl-ment-prigent/egodex/  #/lustre/fsmisc/dataset/ml-egodex/part1
+  data_path: /lustre/fsmisc/dataset/ml-egodex/part1
   window_size: 16
   validation_split: 0.1
   batch_size: 8
