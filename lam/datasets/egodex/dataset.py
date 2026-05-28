@@ -59,7 +59,7 @@ class EgoDexDataset(Dataset):
                 backbone_name='dinov2', train=False, evaluate=False, keys='all', var_time=False):
         super(EgoDexDataset, self).__init__()
         if train:
-            self.data_root = os.path.join(root_folder, 'train')
+            self.data_root = os.path.join(root_folder, 'part1')
         else:
             self.data_root = os.path.join(root_folder, 'test')
 
