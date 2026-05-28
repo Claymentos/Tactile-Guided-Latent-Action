@@ -11,7 +11,6 @@ from torch import Tensor
 
 from lam.metrics import _compute_metrics
 OptimizerCallable = Callable[[Iterable], Optimizer]
-from lam.lam import UncontrolledDINOLatentActionModel, ControllableDINOLatentActionModel
 import matplotlib.pyplot as plt
 from accelerate import PartialState
 
