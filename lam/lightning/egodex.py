@@ -25,8 +25,8 @@ class EgoDexDataModule(L.LightningDataModule):
                                 patch_size=14, 
                                 img_size=224, 
                                 backbone_name='dinov2', 
-                                train=False, 
-                                evaluate=True, 
+                                train=True, 
+                                evaluate=False, 
                                 keys='all', 
                                 var_time=False)
 
