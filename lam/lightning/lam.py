@@ -12,7 +12,7 @@ from torch import Tensor
 from lam.metrics import _compute_metrics
 OptimizerCallable = Callable[[Iterable], Optimizer]
 from lam.lam import UncontrolledDINOLatentActionModel, ControllableDINOLatentActionModel
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 from accelerate import PartialState
 
 class DINO_LAM(L.LightningModule):
@@ -313,6 +313,97 @@ class LAMVAETraining(L.LightningModule):
 
     def configure_optimizers(self):
         return self.optimizer(self.parameters())
+
+class ActVAETraining(L.LightningModule):
+    def __init__(self,
+                 model: nn.Module,
+                 vq_beta: float=0.25,
+                 learning_rate: float = 1e-3,
+                 weight_decay: float = 0.01,
+                 scheduler_max_steps: int = 200_000,
+                 ):
+        super().__init__()
+        self.save_hyperparameters(ignore=['model'])
+        self.model = model
+        self.vq_beta = vq_beta
+        self.learning_rate = learning_rate
+        self.weight_decay = weight_decay
+        self.steps = scheduler_max_steps
+
+    def process_batch(self, batch):
+        if isinstance(batch, list):
+            actions = batch[1]
+        elif isinstance(batch, dict):
+            actions = batch["actions"]
+        return actions
+    
+    def training_step(self, batch, batch_idx):
+
+        batch = self.process_batch(batch)
+        output = self.model(batch)
+
+        loss = output["recon_loss"] + self.vq_beta * output["commit_loss"] + output["codebook_loss"]
+        self.log("train/loss", loss)
+        self.log("train/recon_loss", output["recon_loss"])
+        self.log("train/commit_loss", output["commit_loss"])
+        self.log("train/codebook_loss", output["codebook_loss"])
+
+        return loss
+    
+
+    def validation_step(self, batch, batch_idx):
+
+        batch = self.process_batch(batch)
+        output = self.model(batch)
+
+        loss = output["recon_loss"] + self.vq_beta * output["commit_loss"] + output["codebook_loss"]
+        self.log("train/loss", loss)
+        self.log("train/recon_loss", output["recon_loss"])
+        self.log("train/commit_loss", output["commit_loss"])
+        self.log("train/codebook_loss", output["codebook_loss"])
+
+        if batch_idx == 0:
+            self.log_trajectory_plot(batch, output["recon_actions"])
+
+
+        return loss
+    
+
+    def log_trajectory_plot(self, gt_actions, recon_actions):
+        """
+        Génère un graphique de trajectoire en convertissant les tenseurs en float32.
+        """
+        # Ajout du .float() avant le .cpu().numpy()
+        gt_sample = gt_actions[0, :, 0, :].float().cpu().numpy()          # Shape: (T, 3)
+        recon_sample = recon_actions[0, :, 0, :].float().cpu().numpy()    # Shape: (T, 3)
+        
+        fig, axes = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
+        coords = ['X', 'Y', 'Z']
+        
+        for i in range(3):
+            axes[i].plot(gt_sample[:, i], label="Ground Truth", color='black', linestyle='--')
+            axes[i].plot(recon_sample[:, i], label="Reconstructed", color='crimson')
+            axes[i].set_ylabel(f"Coord {coords[i]}")
+            axes[i].grid(True)
+            if i == 0:
+                axes[i].legend()
+                
+        axes[-1].set_xlabel("Time step (Sequence frames)")
+        plt.suptitle("Trajectory Alignment: Keypoint 0 (GT vs ActVAE Reconstruction)")
+        
+        # Vérification que le logger est disponible (pour éviter les erreurs lors du sanity check)
+        if self.logger and hasattr(self.logger, "experiment"):
+            self.logger.experiment.log({"val/trajectory_match": wandb.Image(fig)})
+        
+        plt.close(fig)
+        
+    def configure_optimizers(self):
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.steps)
+
+        return [optimizer], [{'scheduler': scheduler, 'interval': 'step', 'frequency': 1}]
+
+    
 
 
 class LAMTraining(L.LightningModule):

@@ -1,6 +1,12 @@
-default:
+defaults:
+  - _self_
+  - algo: lam-stage-1
   - data: rlds
   
+
+
+checkpoint_path: null       # Set to resume a training run
+
 lightning_module:
   _target_: lam.lightning.lam.DINO_LAM
   image_channels: 3

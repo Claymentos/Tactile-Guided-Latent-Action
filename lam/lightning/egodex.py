@@ -19,9 +19,16 @@ class EgoDexDataModule(L.LightningDataModule):
         self.num_workers = num_workers
 
     def setup(self, stage):
-        dataset = EgoDexDataset(data_dir=self.data_path,
-                                len_seq=self.window_size,
-                                img_size=(128,128))
+        dataset = EgoDexDataset(root_folder=self.data_path, 
+                                max_context_len=self.window_size, 
+                                num_context=4, 
+                                patch_size=14, 
+                                img_size=224, 
+                                backbone_name='dinov2', 
+                                train=False, 
+                                evaluate=True, 
+                                keys='all', 
+                                var_time=False)
 
         
         if self.validation_split > 0:

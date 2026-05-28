@@ -1,12 +1,12 @@
-data_module: 
+data_module:
   _target_: lam.lightning.rlds.RLDSModule
   data_dir: '/lustre/fsn1/projects/rech/iyg/uvx44rt/ego4d_rlds'
   batch_size: 64
   validation: true
   image_size: 128
   shuffle_buffer_size: 100_000
-  episodic: False
-  image_aug: False
+  episodic: false
+  image_aug: false
   window_size: 8
   data_mix: ego4d
   multiview: false

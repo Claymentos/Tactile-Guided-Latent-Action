@@ -3,10 +3,9 @@ from torch import nn
 from einops.layers.torch import Rearrange
 from einops import repeat
 from torch import Tensor
-from typing import Dict
+from typing import Dict, List
 
 import torch.nn.functional as F
-
 from lam.modules.blocks import patchify, unpatchify, SpatioTemporalTransformer, SpatioTransformer
 from torch import Tensor
 from torchvision import transforms
@@ -14,7 +13,7 @@ from torchvision import transforms
 from einops import rearrange, repeat
 from transformers import T5EncoderModel, T5Tokenizer
 
-from genie.modules.blocks import patchify, unpatchify, SpatioTemporalTransformer, SpatioTransformer, VectorQuantizer, \
+from lam.genie.modules.blocks import patchify, unpatchify, SpatioTemporalTransformer, SpatioTransformer, VectorQuantizer, \
                                                      MVSpatioTemporalTransformer, MVSpatioTransformer
 
 
@@ -84,12 +83,12 @@ class UncontrolledDINOLatentActionModel(nn.Module):
         )
 
         # Load T5 text encoder model
-        self.text_encoder = T5EncoderModel.from_pretrained('$DSDIR/HuggingFace_Models' + '/t5-base')
+        self.text_encoder = T5EncoderModel.from_pretrained('/lustre/fsmisc/dataset/HuggingFace_Models/t5-base')
         self.text_encoder.requires_grad_(False)
         self.lang_proj = nn.Linear(768, model_dim)
 
         # Load T5 tokenizer
-        self.tokenizer = T5Tokenizer.from_pretrained('$DSDIR/HuggingFace_Models' + '/t5-base')
+        self.tokenizer = T5Tokenizer.from_pretrained('/lustre/fsmisc/dataset/HuggingFace_Models/t5-base')
 
     def encode_text(self, lang: List):
         # Tokenize the batch with padding to the longest sequence
@@ -319,203 +318,91 @@ class ControllableDINOLatentActionModel(nn.Module):
         return next(self.parameters()).device
 
 
-class LAMVAE(nn.Module):
-    def __init__(self,
-                 encoder,
-                 decoder,
-                 fc,
-                 patch_up,
-                 action_up,
-                 action_prompt,
-                 patch_size,
-                 feature_extractor=None
-    ):
-        super().__init__()
-        self.encoder = encoder
-        self.decoder = decoder
-        self.fc = fc
-        self.patch_up = patch_up
-        self.action_up = action_up
-        self.action_prompt = action_prompt
-        nn.init.uniform(self.action_prompt, a=-1, b=1)
-        self.patch_size = patch_size
-        self.feature_extractor = feature_extractor
-
-
-    def extract_patches(self, x):
-        if self.feature_extractor is not None:
-            with torch.no_grad():
-                features = self.feature_extractor(x)
-                return features
-            
-        else:
-            return patchify(x, self.patch_size)
+class ActVAE(nn.Module):
+    def __init__(self, 
+                 action_dim=264,       
+                 model_dim=512,        
+                 latent_dim=512, 
+                 num_latents=16,       
+                 enc_layers=15,        
+                 dec_layers=15,       
+                 nhead=8,
+                 dropout=0.1):
+        super(ActVAE, self).__init__()
         
+        self.action_dim = action_dim
+        
+        self.input_proj = nn.Linear(action_dim, model_dim)
+        
+        self.pos_embedding = nn.Parameter(torch.randn(1, 500, model_dim))
+        
+        enc_layer = nn.TransformerEncoderLayer(
+            d_model=model_dim, 
+            nhead=nhead, 
+            dim_feedforward=model_dim * 4, 
+            dropout=dropout, 
+            batch_first=True
+        )
+        self.encoder = nn.TransformerEncoder(enc_layer, num_layers=enc_layers)
+        
+        self.to_latent = nn.Linear(model_dim, latent_dim)
+        
+        self.vq = VectorQuantizer(
+            num_latents=num_latents,
+            latent_dim=latent_dim,
+            code_restart=True
+        )
+        
+        self.latent_proj = nn.Linear(latent_dim, model_dim)
+        dec_layer = nn.TransformerEncoderLayer(
+            d_model=model_dim, 
+            nhead=nhead, 
+            dim_feedforward=model_dim * 4, 
+            dropout=dropout, 
+            batch_first=True
+        )
+        self.decoder = nn.TransformerEncoder(dec_layer, num_layers=dec_layers)
+        
+        self.output_proj = nn.Linear(model_dim, action_dim)
 
-    def forward(self, x):
-        H, W = x.shape[3], x.shape[4]
-        outputs = self.encode(x)
+    def forward(self, actions):
 
-        video_patches  = self.patch_up(outputs["patches"][:, :-1])   # (B, T-1, P, model_dim)
-        action_patches = self.action_up(outputs["z_rep"])             # (B, T-1, 1, model_dim)
-        video_action_patches = video_patches + action_patches
-
-        del outputs["patches"]
-
-        video_recon = self.decoder(video_action_patches)
-        video_recon = torch.sigmoid(video_recon)
-
-        if self.feature_extractor is not None:
-
-            outputs["recon"] = video_recon
-        else:
-            outputs["recon"] = unpatchify(video_recon, self.patch_size, H, W)
-
-        future_frame = x[:,1:]
-        recon_loss = F.mse_loss(outputs["recon"], future_frame)
-        outputs["recon_loss"] = recon_loss
-        kl_loss = -0.5 * torch.sum(1 + outputs["z_var"] - outputs["z_mu"] ** 2 - outputs["z_var"].exp(), dim=1).mean()
-        outputs['kl_loss'] = kl_loss
-        loss = recon_loss + kl_loss
-        outputs['loss'] = loss
-
-        return outputs
+        B, T = actions.shape[:2]
+        print(f"x shape befor rearrange : {actions.shape}")
+        x = rearrange(actions, 'b t p c -> b t (p c)') 
+        print(f"x shape : {x.shape}")
+        z_e = self.encode(x)
+        z_e = self.to_latent(z_e)
+        
+        z_q, z, emb, indices = self.vq(z_e)
+        
+        actions_recon = self.decode(z_q)
 
         
+        recon_loss = nn.functional.mse_loss(actions_recon, actions)
 
+        codebook_commitment_loss = F.mse_loss(z_q, z_e.detach())
+
+        codebook_loss =  F.mse_loss(z_e, z_q.detach())     
+
+        return {
+            "recon_actions": actions_recon,
+            "recon_loss": recon_loss,
+            "commit_loss": codebook_commitment_loss,
+            "codebook_loss": codebook_loss,
+            "z_q": z_q,
+            "indices": indices
+        }
+    
     def encode(self, x):
-        B,T = x.shape[:2]
-        patches = self.extract_patches(x)
-        action_pad = self.action_prompt.expand(B,T,-1,-1)
-        padded_patches = torch.cat([action_pad, patches], dim=2)
-
-        z = self.encoder(padded_patches)
-        z = z[:, 1:, 0]    
-        z = z.reshape(B * (T - 1), self.model_dim)
-        moments = self.fc(z)
-        z_mu, z_var = torch.chunk(moments, 2, dim=1)
-        if not self.training:
-            z_rep = z_mu
-        else:
-            z_rep = z_mu + torch.randn_like(z_var) * torch.exp(0.5 * z_var)
-        z_rep = z_rep.reshape(B, T - 1, 1, self.latent_dim)
-
-        if not self.training:
-            if self.mu_record is None:
-                self.mu_record = z_mu
-            else:
-                self.mu_record = torch.cat([self.mu_record, z_mu], dim=0)
-        
-        return {
-            "patches": patches,
-            "z_rep": z_rep,
-            "z_mu": z_mu,
-            "z_var": z_var
-        }
-                                                            
-
-
-class LatentActionModel(nn.Module):
-    """
-    Latent action VAE.
-    """
-
-    def __init__(
-            self,
-            in_dim: int,
-            model_dim: int,
-            latent_dim: int,
-            patch_size: int,
-            enc_blocks: int,
-            dec_blocks: int,
-            num_heads: int,
-            dropout: float = 0.0
-    ) -> None:
-        super(LatentActionModel, self).__init__()
-        self.model_dim = model_dim
-        self.latent_dim = latent_dim
-        self.patch_size = patch_size
-        patch_token_dim = in_dim * patch_size ** 2
-
-        self.action_prompt = nn.Parameter(torch.empty(1, 1, 1, patch_token_dim))
-        nn.init.uniform_(self.action_prompt, a=-1, b=1)
-        self.encoder = SpatioTemporalTransformer(
-            in_dim=patch_token_dim,
-            model_dim=model_dim,
-            out_dim=model_dim,
-            num_blocks=enc_blocks,
-            num_heads=num_heads,
-            dropout=dropout
-        )
-        self.fc = nn.Linear(model_dim, latent_dim * 2)
-        self.patch_up = nn.Linear(patch_token_dim, model_dim)
-        self.action_up = nn.Linear(latent_dim, model_dim)
-        self.decoder = SpatioTransformer(
-            in_dim=model_dim,
-            model_dim=model_dim,
-            out_dim=patch_token_dim,
-            num_blocks=dec_blocks,
-            num_heads=num_heads,
-            dropout=dropout
-        )
-
-        self.mu_record = None
-
-    def encode(self, videos: Tensor) -> Dict:
-        # Preprocess videos
-        B, T = videos.shape[:2]
-        patches = patchify(videos, self.patch_size)
-        action_pad = self.action_prompt.expand(B, T, -1, -1)
-        padded_patches = torch.cat([action_pad, patches], dim=2)
-
-        # Encode
-        z = self.encoder(padded_patches)  # (B, T, 1+N, E)
-        # Get latent action for all future frames
-        z = z[:, 1:, 0]  # (B, T-1, 1, E)
-
-        # VAE
-        z = z.reshape(B * (T - 1), self.model_dim)
-        moments = self.fc(z)
-        z_mu, z_var = torch.chunk(moments, 2, dim=1)
-        # Reparameterization
-        if not self.training:
-            z_rep = z_mu
-        else:
-            z_rep = z_mu + torch.randn_like(z_var) * torch.exp(0.5 * z_var)
-        z_rep = z_rep.reshape(B, T - 1, 1, self.latent_dim)
-
-        if not self.training:
-            if self.mu_record is None:
-                self.mu_record = z_mu
-            else:
-                self.mu_record = torch.cat([self.mu_record, z_mu], dim=0)
-
-        return {
-            "patches": patches,
-            "z_rep": z_rep,
-            "z_mu": z_mu,
-            "z_var": z_var
-        }
-
-    def forward(self, batch: Dict) -> Dict:
-        # Encode + VAE
-        H, W = batch["images"].shape[2:4]
-        outputs = self.encode(batch["images"])
-        video_patches = self.patch_up(outputs["patches"][:, :-1])
-        action_patches = self.action_up(outputs["z_rep"])
-        video_action_patches = video_patches + action_patches
-
-        del outputs["patches"]
-
-        # Decode
-        video_recon = self.decoder(video_action_patches)
-        video_recon = F.sigmoid(video_recon)
-        outputs.update(
-            {
-                "recon": unpatchify(video_recon, self.patch_size, H, W)
-            }
-        )
-        return outputs
+        return self.encoder(self.input_proj(x) + self.pos_embedding[:, :x.shape[1], :])
+    
+    def decode(self, z_q):
+        dec_in = self.latent_proj(z_q) + self.pos_embedding[:, :z_q.shape[1], :]
+        out = self.decoder(dec_in)
+        actions_recon_flat = self.output_proj(out)
+        actions_recon = rearrange(actions_recon_flat, 'b t (p c) -> b t p c', p=88, c=3)
+        return actions_recon
 
 
 class LAM(nn.Module):

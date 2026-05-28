@@ -1,0 +1,10 @@
+model:
+  _target_: lam.lam.ActVAE
+  action_dim : 264       
+  model_dim : 512        
+  latent_dim : 512 
+  num_latents : 16       
+  enc_layers : 15        
+  dec_layers : 15       
+  nhead : 8
+  dropout : 0.1
