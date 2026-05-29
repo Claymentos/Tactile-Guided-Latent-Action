@@ -85,9 +85,9 @@ class ActVAE(nn.Module):
         
         recon_loss = nn.functional.mse_loss(actions_recon, actions)
 
-        codebook_commitment_loss = F.mse_loss(z_q, z_e.detach())
+        codebook_commitment_loss = F.mse_loss(z, z_e.detach())
 
-        codebook_loss =  F.mse_loss(z_e, z_q.detach())     
+        codebook_loss =  F.mse_loss(z_e, z.detach())     
 
         return {
             "recon_actions": actions_recon,
@@ -95,6 +95,7 @@ class ActVAE(nn.Module):
             "commit_loss": codebook_commitment_loss,
             "codebook_loss": codebook_loss,
             "z_q": z_q,
+            "emb": emb,
             "indices": indices
         }
     
