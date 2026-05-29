@@ -15,13 +15,99 @@ from transformers import T5EncoderModel, T5Tokenizer
 
 from lam.genie.modules.blocks import patchify, unpatchify, SpatioTemporalTransformer, SpatioTransformer, VectorQuantizer, \
                                                      MVSpatioTemporalTransformer, MVSpatioTransformer
-
+from vector_quantize_pytorch import VectorQuantize
 
 
 IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
 
 
+class ActVAEVisionVAE(nn.Module):
+    def __init__(self, 
+                 vq,
+                 vision_encoder,
+                 vision_decoder,
+                 action_dim=264,       
+                 model_dim=512,        
+                 latent_dim=512, 
+                 num_latents=16,       
+                 enc_layers=15,        
+                 dec_layers=15,       
+                 nhead=8,
+                 dropout=0.1):
+        super(ActVAEVisionVAE, self).__init__()
+        
+        self.action_dim = action_dim
+        
+        self.input_proj = nn.Linear(action_dim, model_dim)
+        
+        self.pos_embedding = nn.Parameter(torch.randn(1, 500, model_dim))
+        
+        enc_layer = nn.TransformerEncoderLayer(
+            d_model=model_dim, 
+            nhead=nhead, 
+            dim_feedforward=model_dim * 4, 
+            dropout=dropout, 
+            batch_first=True
+        )
+        self.encoder = nn.TransformerEncoder(enc_layer, num_layers=enc_layers)
+        
+        self.to_latent = nn.Linear(model_dim, latent_dim)
+        
+        self.vq = vq
+
+        self.vision_encoder = vision_encoder
+        self.vision_decoder = vision_decoder
+
+        self.latent_proj = nn.Linear(latent_dim, model_dim)
+        dec_layer = nn.TransformerEncoderLayer(
+            d_model=model_dim, 
+            nhead=nhead, 
+            dim_feedforward=model_dim * 4, 
+            dropout=dropout, 
+            batch_first=True
+        )
+        self.decoder = nn.TransformerEncoder(dec_layer, num_layers=dec_layers)
+        
+        self.output_proj = nn.Linear(model_dim, action_dim)
+
+    def forward(self, actions):
+
+        B, T = actions.shape[:2]
+        x = rearrange(actions, 'b t p c -> b t (p c)') 
+        z_e = self.encode(x)
+        z_e = self.to_latent(z_e)
+        
+        z_q, z, emb, indices = self.vq(z_e)
+        
+        actions_recon = self.decode(z_q)
+
+        
+        recon_loss = nn.functional.mse_loss(actions_recon, actions)
+
+        codebook_commitment_loss = F.mse_loss(z, z_e.detach())
+
+        codebook_loss =  F.mse_loss(z_e, z.detach())     
+
+        return {
+            "recon_actions": actions_recon,
+            "recon_loss": recon_loss,
+            "commit_loss": codebook_commitment_loss,
+            "codebook_loss": codebook_loss,
+            "z_q": z_q,
+            "emb": emb,
+            "indices": indices
+        }
+    
+    def encode(self, x):
+        return self.encoder(self.input_proj(x) + self.pos_embedding[:, :x.shape[1], :])
+    
+    def decode(self, z_q):
+        dec_in = self.latent_proj(z_q) + self.pos_embedding[:, :z_q.shape[1], :]
+        out = self.decoder(dec_in)
+        actions_recon_flat = self.output_proj(out)
+        actions_recon = rearrange(actions_recon_flat, 'b t (p c) -> b t p c', p=88, c=3)
+        return actions_recon
 
 
 class ActVAE(nn.Module):
@@ -29,7 +115,7 @@ class ActVAE(nn.Module):
                  action_dim=264,       
                  model_dim=512,        
                  latent_dim=512, 
-                 num_latents=16,       
+                 num_latents=256,       
                  enc_layers=15,        
                  dec_layers=15,       
                  nhead=8,
@@ -65,7 +151,8 @@ class ActVAE(nn.Module):
             nhead=nhead, 
             dim_feedforward=model_dim * 4, 
             dropout=dropout, 
-            batch_first=True
+            batch_first=True,
+            norm_first=True
         )
         self.decoder = nn.TransformerEncoder(dec_layer, num_layers=dec_layers)
         
