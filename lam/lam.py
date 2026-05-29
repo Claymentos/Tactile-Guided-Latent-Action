@@ -74,9 +74,7 @@ class ActVAE(nn.Module):
     def forward(self, actions):
 
         B, T = actions.shape[:2]
-        print(f"x shape befor rearrange : {actions.shape}")
         x = rearrange(actions, 'b t p c -> b t (p c)') 
-        print(f"x shape : {x.shape}")
         z_e = self.encode(x)
         z_e = self.to_latent(z_e)
         
