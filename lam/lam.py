@@ -108,6 +108,52 @@ class ActVAEVisionVAE(nn.Module):
         actions_recon_flat = self.output_proj(out)
         actions_recon = rearrange(actions_recon_flat, 'b t (p c) -> b t p c', p=88, c=3)
         return actions_recon
+    
+
+class VDVAE(nn.Module):
+    def __init__(self,
+                 act_vae,
+                 image_size,
+                 num_latents,
+                 model_dim,
+                 latent_dim,
+                 nhead,
+                 enc_layers,
+                 dec_layers,):
+        
+        super().__init__()
+        self.act_vae = act_vae
+        self.image_size = image_size
+        self.num_latents = num_latents
+        self.model_dim = model_dim  
+        self.latent_dim = latent_dim
+        self.nhead = nhead
+        self.enc_layers = enc_layers
+        self.dec_layers = dec_layers
+
+        self.feature_extractor = torch.hub.load('facebookresearch/dinov3', 'dinov3_vitb16', source='github')
+        self.feature_extractor.eval().to('cuda')
+
+        for param in self.feature_extractor.parameters():
+            param.requires_grad = False
+
+
+        for param in self.act_vae.parameters():
+            param.requires_grad = False
+
+        self.act_codebook = self.act_vae.vq.codebook
+
+        self.env_vq = VectorQuantizer(
+            num_latents=num_latents,
+            latent_dim=latent_dim,
+            code_restart=True
+        )
+
+
+
+    def extract_features(self, x):
+        pass
+    
 
 
 class ActVAE(nn.Module):
@@ -133,7 +179,8 @@ class ActVAE(nn.Module):
             nhead=nhead, 
             dim_feedforward=model_dim * 4, 
             dropout=dropout, 
-            batch_first=True
+            batch_first=True,
+            norm_first=True
         )
         self.encoder = nn.TransformerEncoder(enc_layer, num_layers=enc_layers)
         

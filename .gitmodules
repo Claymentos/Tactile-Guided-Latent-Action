@@ -7,3 +7,6 @@
 [submodule "UniVLA"]
 	path = UniVLA
 	url = https://github.com/Claymentos/UniVLA.git
+[submodule "dinov3"]
+	path = dinov3
+	url = https://github.com/facebookresearch/dinov3.git

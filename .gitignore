@@ -6,3 +6,4 @@ checkpoints/
 *.png
 __pycache__
 dummy_scripts
+weights/

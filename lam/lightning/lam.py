@@ -92,17 +92,23 @@ class ActVAETraining(L.LightningModule):
         axes[-1].set_xlabel("Time step (Sequence frames)")
         plt.suptitle("Trajectory Alignment: Keypoint 0 (GT vs ActVAE Reconstruction)")
         
-        # Vérification que le logger est disponible (pour éviter les erreurs lors du sanity check)
         if self.logger and hasattr(self.logger, "experiment"):
             self.logger.experiment.log({"val/trajectory_match": wandb.Image(fig)})
         
         plt.close(fig)
         
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.steps)
+            vq_params = list(self.model.vq.parameters())
+            base_params = [p for n, p in self.model.named_parameters() if 'vq' not in n]
 
-        return [optimizer], [{'scheduler': scheduler, 'interval': 'step', 'frequency': 1}]
+            # On applique les LR préconisés par le papier
+            optimizer = torch.optim.AdamW([
+                {'params': base_params, 'lr': 2e-5},
+                {'params': vq_params, 'lr': 1e-3}
+            ], weight_decay=self.weight_decay)
+            
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.steps)
+            return [optimizer], [{'scheduler': scheduler, 'interval': 'step', 'frequency': 1}]
 
     
 
