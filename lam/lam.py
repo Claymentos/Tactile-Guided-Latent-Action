@@ -59,7 +59,7 @@ class InverseDynamicEncoder(nn.Module):
                  dropout: float):
         
         super().__init__()
-        self.readout_token = nn.Parameter(torch.randn(1, 1, model_dim))
+        self.readout_token = nn.Parameter(torch.randn(1, 1, 1, model_dim))
         nn.init.normal(self.readout_token, std=1e-6)
 
         self.layers = nn.ModuleList([
