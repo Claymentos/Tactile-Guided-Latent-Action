@@ -13,6 +13,7 @@ from einops import rearrange, repeat
 from transformers import T5EncoderModel, T5Tokenizer
 from lam.genie.modules.blocks import VectorQuantizer                                                    
 from vector_quantize_pytorch import VectorQuantize
+from lam.lightning.lam import ActVAETraining
 
 
 IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
@@ -128,7 +129,8 @@ class VDVAE(nn.Module):
     def __init__(self,
                  dino_repo,
                  dino_weights,
-                 act_vae,
+                 act_vae_checkpoint,
+                 act_vae_cfg,
                  image_size,
                  num_latents,
                  model_dim,
@@ -146,7 +148,9 @@ class VDVAE(nn.Module):
                  commitment_weight):
         
         super().__init__()
-        self.act_vae = act_vae
+        act_vae_model = ActVAE(**act_vae_cfg)
+        ckpt = ActVAETraining.load_from_checkpoint(act_vae_checkpoint, model=act_vae_model)
+        self.act_vae = ckpt.model
         self.image_size = image_size
         self.num_latents = num_latents
         self.model_dim = model_dim  
@@ -183,6 +187,7 @@ class VDVAE(nn.Module):
 
         for param in self.act_vae.parameters():
             param.requires_grad = False
+        self.act_vae.eval()
 
         self.act_codebook : nn.Embedding = self.act_vae.vq.codebook
 
