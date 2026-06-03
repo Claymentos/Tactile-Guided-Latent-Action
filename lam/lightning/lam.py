@@ -101,7 +101,6 @@ class ActVAETraining(L.LightningModule):
             vq_params = list(self.model.vq.parameters())
             base_params = [p for n, p in self.model.named_parameters() if 'vq' not in n]
 
-            # On applique les LR préconisés par le papier
             optimizer = torch.optim.AdamW([
                 {'params': base_params, 'lr': 2e-5},
                 {'params': vq_params, 'lr': 1e-3}
@@ -111,8 +110,6 @@ class ActVAETraining(L.LightningModule):
             return [optimizer], [{'scheduler': scheduler, 'interval': 'step', 'frequency': 1}]
 
     
-
-
 class LAMTraining(L.LightningModule):
     def __init__(self,  
                  model: nn.Module, 
@@ -309,4 +306,108 @@ class LAMTraining(L.LightningModule):
 
         return [optimizer], [{'scheduler': scheduler, 'interval': 'step', 'frequency': 1}]
     
+class VDVAETraining(L.LightningModule):
+    def __init__(self,
+                 model: nn.Module,
+                 vae_learning_rate: float=2e-4,
+                 codebook_learning_rate: float=1e-4,
+                 weight_decay: float=0.01,
+                 scheduler_max_steps: int=200_000,
+                 ):
+        super().__init__()
+        self.save_hyperparameters(ignore=['model'])
+        self.model = model
+        self.vae_learning_rate = vae_learning_rate
+        self.codebook_learning_rate = codebook_learning_rate
+        self.weight_decay = weight_decay
+        self.steps = scheduler_max_steps
+
+
+    def training_step(self, batch, batch_idx):
+        frames, actions, rel_t, _, _, _ = batch
+        B, T_plus_1, C, H, W = frames.shape
+        T = T_plus_1 - 1
+        
+        # Flatten transitions: (B, T, ...) -> (B*T, ...)
+        frame_t = frames[:, :-1].reshape(B * T, C, H, W)
+        frame_t_H = frames[:, 1:].reshape(B * T, C, H, W)
+        actions_t = actions.reshape(B * T, actions.shape[-2], actions.shape[-1])
+        
+        output = self.model(frame_t, frame_t_H, actions=actions_t)
+        
+        self.log("train/loss", output["loss"])
+        self.log("train/loss_recon", output["loss_recon"])
+        self.log("train/loss_vq_act", output["loss_vq_act"])
+        self.log("train/loss_vq_env", output["loss_vq_env"])
+        self.log("train/loss_contrastive", output["loss_contrastive"])
+        self.log("train/loss_reg", output["loss_reg"])
+        
+        return output["loss"]
+
+    def validation_step(self, batch, batch_idx):
+        frames, actions, rel_t, _, _, _ = batch
+        B, T_plus_1, C, H, W = frames.shape
+        T = T_plus_1 - 1
+        
+        frame_t = frames[:, :-1].reshape(B * T, C, H, W)
+        frame_t_H = frames[:, 1:].reshape(B * T, C, H, W)
+        actions_t = actions.reshape(B * T, actions.shape[-2], actions.shape[-1])
+        
+        output = self.model(frame_t, frame_t_H, actions=actions_t)
+        
+        self.log("val/loss", output["loss"])
+        self.log("val/loss_recon", output["loss_recon"])
+        self.log("val/loss_vq_act", output["loss_vq_act"])
+        self.log("val/loss_vq_env", output["loss_vq_env"])
+        self.log("val/loss_contrastive", output["loss_contrastive"])
+
+        # if batch_idx == 0:
+        #     self.log_videos()
+
+        
+        return output["loss"]
     
+    def log_videos(self, target_view, recon_video, random_reconstruction):
+        recon_video = torch.cat([target_view[:, :1], recon_video], dim=1)
+        
+        if random_reconstruction is not None:
+            random_reconstruction = torch.cat([target_view[:, :1], random_reconstruction], dim=1)
+
+            x = [make_grid([
+                (target_view[0][t]*255).to('cpu', torch.uint8), (recon_video[0][t]*255).to('cpu', torch.uint8), (random_reconstruction[0][t]*255).to('cpu', torch.uint8),
+                (target_view[1][t]*255).to('cpu', torch.uint8), (recon_video[1][t]*255).to('cpu', torch.uint8), (random_reconstruction[1][t]*255).to('cpu', torch.uint8),
+                (target_view[2][t]*255).to('cpu', torch.uint8), (recon_video[2][t]*255).to('cpu', torch.uint8), (random_reconstruction[2][t]*255).to('cpu', torch.uint8),
+                (target_view[3][t]*255).to('cpu', torch.uint8), (recon_video[3][t]*255).to('cpu', torch.uint8), (random_reconstruction[3][t]*255).to('cpu', torch.uint8)
+            ], nrow=3) for t in range(random_reconstruction.size(1))]
+
+            caption="video | reconstruction | imagination"
+
+        else:
+            x = [make_grid([
+                (target_view[0][t]*255).to('cpu', torch.uint8), (recon_video[0][t]*255).to('cpu', torch.uint8),
+                (target_view[1][t]*255).to('cpu', torch.uint8), (recon_video[1][t]*255).to('cpu', torch.uint8),
+                (target_view[2][t]*255).to('cpu', torch.uint8), (recon_video[2][t]*255).to('cpu', torch.uint8),
+                (target_view[3][t]*255).to('cpu', torch.uint8), (recon_video[3][t]*255).to('cpu', torch.uint8)
+            ], nrow=2) for t in range(recon_video.size(1))]
+
+            caption="video | reconstruction"
+
+        x = torch.stack(x, dim=0)
+        video = wandb.Video(x, fps=2, caption=caption)
+        self.logger.experiment.log({"val_videos": video})
+
+
+    def configure_optimizers(self):
+        # Separate learning rates for model and env_vq codebook as requested
+        vq_params = list(self.model.env_vq.parameters())
+        base_params = [p for n, p in self.model.named_parameters() if 'env_vq' not in n]
+
+        optimizer = torch.optim.AdamW([
+            {'params': base_params, 'lr': self.hparams.vae_learning_rate},
+            {'params': vq_params, 'lr': self.hparams.codebook_learning_rate}
+        ], weight_decay=self.hparams.weight_decay)
+        
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.hparams.scheduler_max_steps)
+        return [optimizer], [{'scheduler': scheduler, 'interval': 'step', 'frequency': 1}]
+        
+        

@@ -21,8 +21,9 @@ class FeedForward(nn.Module):
 
 
 class SpatialTemporalLayer(nn.Module):
-    def __init__(self, model_dim, num_spatial_heads, num_temporal_heads, dropout):
+    def __init__(self, model_dim, num_spatial_heads, num_temporal_heads, dropout, is_causal):
         super().__init__()
+        self.is_causal = is_causal
         self.temporal_attention = nn.MultiheadAttention(model_dim, num_temporal_heads, dropout=dropout, batch_first=True)
         self.spatial_attention = nn.MultiheadAttention(model_dim, num_spatial_heads, dropout=dropout, batch_first=True)
         self.feed_forward = FeedForward(model_dim, 4*model_dim, dropout=dropout)
@@ -46,10 +47,13 @@ class SpatialTemporalLayer(nn.Module):
 
         x = rearrange(x, '(b t) p f -> (b p) t f', b=b, t=t)
         x_norm = self.norm2(x)
-        causal_mask = torch.nn.Transformer.generate_square_subsequent_mask(t, device=x.device)
-        attn_output = self.temporal_attention(x_norm, x_norm, x_norm, attn_mask=causal_mask, is_causal=True, need_weights=False)[0]
-        x = x + attn_output
+        if self.is_causal:
+            causal_mask = torch.nn.Transformer.generate_square_subsequent_mask(t, device=x.device)
+            attn_output = self.temporal_attention(x_norm, x_norm, x_norm, attn_mask=causal_mask, is_causal=True, need_weights=False)[0]
+        else:
+            attn_output = self.temporal_attention(x_norm, x_norm, x_norm, need_weights=False)[0]        
 
+        x = x + attn_output
         x_norm = self.norm3(x)
         ff_output = self.feed_forward(x_norm)
         x = x + ff_output
@@ -69,7 +73,8 @@ class STTransformer(nn.Module):
                  image_size, 
                  patch_size, 
                  max_seq_len=32,
-                 add_readout_token=False):
+                 add_readout_token=False,
+                 is_causal=True):
         super().__init__()
         image_height, image_width = image_size if isinstance(image_size, tuple) else (image_size, image_size)
         patch_height, patch_width = patch_size if isinstance(patch_size, tuple) else (patch_size, patch_size)
@@ -89,7 +94,8 @@ class STTransformer(nn.Module):
             layers  = nn.ModuleList([SpatialTemporalLayer(model_dim, 
                                                           num_spatial_heads, 
                                                           num_temporal_heads, 
-                                                          dropout) for _ in range(n_layer)]),
+                                                          dropout,
+                                                          is_causal=is_causal) for _ in range(n_layer)]),
             final_norm = nn.LayerNorm(model_dim),
         ))
         
