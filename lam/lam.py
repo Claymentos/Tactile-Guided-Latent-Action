@@ -79,7 +79,7 @@ class InverseDynamicEncoder(nn.Module):
     def forward(self, f_t: torch.Tensor, f_t_H: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         B,P,D = f_t.shape
         x = torch.stack([f_t, f_t_H], dim=1)
-        readout = rearrange(self.readout_token, '1 1 1 d -> b t 1 d', b=B, t=2)
+        readout = repeat(self.readout_token, '1 1 1 d -> b t 1 d', b=B, t=2)
         x = torch.cat([readout, x], dim=2)
         for layer in self.layers:
             x = layer(x)
