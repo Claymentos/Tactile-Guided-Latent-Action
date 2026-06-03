@@ -276,7 +276,7 @@ class VDVAE(nn.Module):
     def quantize_on_frozen_codebook(self, z_va, codebook):
         dist = torch.cdist(z_va, codebook.weight)
         indices = dist.argmin(dim=-1)
-        z_e = codebook[indices]
+        z_e = codebook(indices)
         z_q = z_va + (z_e - z_va).detach()
         return z_q, z_e, indices
     
