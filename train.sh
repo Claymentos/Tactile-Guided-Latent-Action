@@ -10,8 +10,8 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=24
 #SBATCH --hint=nomultithread
-#SBATCH -t 100:00:00
-#SBATCH --qos=qos_gpu_h100-t4
+#SBATCH -t 20:00:00
+#SBATCH --qos=qos_gpu_h100-dev
 #SBATCH --mail-user=clement.prigent@ec-lyon.fr
 #SBATCH --mail-typ=FAIL
 
