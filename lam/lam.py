@@ -200,7 +200,7 @@ class VDVAE(nn.Module):
         )
 
         ## Get dino dim with dummy input
-        dummy_input = torch.randn(1,1,3,224,392).to('cuda')
+        dummy_input = torch.randn(1,3,224,392).to('cuda')
         with torch.no_grad():
             dummy_features = self.feature_extractor.forward_features(dummy_input)["x_norm_patchtokens"]
 
