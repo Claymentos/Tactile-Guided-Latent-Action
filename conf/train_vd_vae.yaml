@@ -8,8 +8,8 @@ checkpoint_path: null       # Set to resume a training run
 lightning_module: 
   _target_: lam.lightning.lam.VDVAETraining
   model: ${algo.model}
-  vq_beta : 0.25
-  learning_rate: 1e-4
+  vae_learning_rate: 2e-4
+  codebook_learning_rate: 1e-4
   weight_decay: 1e-4
   scheduler_max_steps: ${trainer.max_steps}
 
