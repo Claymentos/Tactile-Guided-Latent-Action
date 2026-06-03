@@ -131,7 +131,6 @@ class VDVAE(nn.Module):
                  dino_weights,
                  act_vae_checkpoint,
                  act_vae_cfg,
-                 image_size,
                  num_latents,
                  model_dim,
                  latent_dim,
@@ -151,7 +150,6 @@ class VDVAE(nn.Module):
         act_vae_model = ActVAE(**act_vae_cfg)
         ckpt = ActVAETraining.load_from_checkpoint(act_vae_checkpoint, model=act_vae_model)
         self.act_vae = ckpt.model
-        self.image_size = image_size
         self.num_latents = num_latents
         self.model_dim = model_dim  
         self.latent_dim = latent_dim
