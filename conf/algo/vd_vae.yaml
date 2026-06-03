@@ -2,7 +2,7 @@ model:
   _target_: lam.lam.VDVAE
   dino_repo : /lustre/fswork/projects/rech/iyg/uvx44rt/LAM/dinov3
   dino_weights : /lustre/fswork/projects/rech/iyg/uvx44rt/LAM/weights/dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth
-  act_vae_checkpoint : /lustre/fswork/projects/rech/iyg/uvx44rt/LAM/runs/wandb/offline-run-20260529_130218-9p1we8pc/checkpoints/'epoch=6-step=180000.ckpt'
+  act_vae_checkpoint : /lustre/fswork/projects/rech/iyg/uvx44rt/LAM/runs/wandb/offline-run-20260529_130218-9p1we8pc/checkpoints/epoch=6-step=180000.ckpt
   act_vae_cfg:
     action_dim : 264       
     model_dim : 512        

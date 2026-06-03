@@ -336,11 +336,6 @@ class VDVAE(nn.Module):
         return z_qa, act_indices
         
 
-
-
-
-
-
 class ActVAE(nn.Module):
     def __init__(self, 
                  action_dim=264,       
