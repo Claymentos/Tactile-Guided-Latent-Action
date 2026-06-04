@@ -112,8 +112,8 @@ class ForwardDynamicsDecoder(nn.Module):
     def forward(self, f_t: torch.Tensor, z_qa: torch.Tensor, z_qi: torch.Tensor):
         B,P,D = f_t.shape
 
-        act_cond = self.act_proj(z_qa).unsqueeze(1).unsqueeze(1).expand(B, P,D)
-        env_cond = self.env_proj(z_qi).unsqueeze(1).unsqueeze(1).expand(B, P,D)
+        act_cond = self.act_proj(z_qa).unsqueeze(1).expand(B, P,D)
+        env_cond = self.env_proj(z_qi).unsqueeze(1).expand(B, P,D)
 
         x = (f_t + act_cond + env_cond).unsqueeze(1)
 
