@@ -3,7 +3,7 @@ model:
   action_dim : 264       
   model_dim : 512        
   latent_dim : 512 
-  num_latents : 16       
+  num_latents : 256       
   enc_layers : 15        
   dec_layers : 15       
   nhead : 8

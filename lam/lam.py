@@ -12,7 +12,7 @@ from lam.st import Transformer
 from einops import rearrange, repeat
 from transformers import T5EncoderModel, T5Tokenizer
 from lam.genie.modules.blocks import VectorQuantizer                                                    
-from vector_quantize_pytorch import VectorQuantize
+from vector_quantize_pytorch import VectorQuantize, ResidualVQ
 from lam.lightning.lam import ActVAETraining
 
 
@@ -90,7 +90,6 @@ class InverseDynamicEncoder(nn.Module):
         zv_e = self.proj_env(readout_out)
         return zv_a, zv_e
 
-
 class ForwardDynamicsDecoder(nn.Module):
     def __init__(self,
                  model_dim: int,
@@ -122,8 +121,6 @@ class ForwardDynamicsDecoder(nn.Module):
 
         x = self.norm(x)
         return x.squeeze(1)
-
-
 
 class VDVAE(nn.Module):
     def __init__(self,
@@ -336,14 +333,110 @@ class VDVAE(nn.Module):
         return z_qa, act_indices
         
 
+class ResidualActVAE(nn.Module):
+    def __init__(self,
+                 action_dim: int,
+                 model_dim: int,
+                 latent_dim: int,
+                 num_quantizers: int,
+                 num_latents: int, 
+                 enc_layers: int,
+                 dec_layers: int,
+                 nhead: int,
+                 dropout: float,
+                 codebook_size: int,
+                 codebook_dim: int,
+                 decay: float,
+                 commitment_weight: float,
+                 kmeans_init: bool,
+                 ):
+        super().__init__()
+
+        self.action_dim = action_dim
+        self.latent_dim = latent_dim
+        self.num_quantizers = num_quantizers
+        self.num_latents = num_latents
+        self.enc_layers = enc_layers
+        self.dec_layers = dec_layers
+        self.nhead = nhead
+        self.dropout = dropout
+
+        self.rvq = ResidualVQ(
+            dim=action_dim,
+            num_quantizers=num_quantizers,
+            codebook_size=num_latents,
+            decay=decay,
+            commitment_weight=commitment_weight,
+            kmeans_init=kmeans_init,
+            codebook_dim=codebook_dim
+        )
+
+        self.input_proj = nn.Linear(action_dim, latent_dim)
+        self.pos_embedding = nn.Parameter(torch.randn(1, 500, model_dim))
+
+        enc_layer = nn.TransformerEncoderLayer(
+            d_model=model_dim, 
+            nhead=nhead, 
+            dim_feedforward=model_dim * 4, 
+            dropout=dropout, 
+            batch_first=True,
+            norm_first=True
+        )
+        self.encoder = nn.TransformerEncoder(enc_layer, num_layers=enc_layers)
+        
+        self.to_latent = nn.Linear(model_dim, latent_dim)
+
+
+        self.latent_proj = nn.Linear(latent_dim, model_dim)
+        dec_layer = nn.TransformerEncoderLayer(
+            d_model=model_dim, 
+            nhead=nhead, 
+            dim_feedforward=model_dim * 4, 
+            dropout=dropout, 
+            batch_first=True,
+            norm_first=True
+        )
+        self.decoder = nn.TransformerEncoder(dec_layer, num_layers=dec_layers)
+        
+        self.output_proj = nn.Linear(model_dim, action_dim)
+
+    def encode(self, x):
+        return self.encoder(self.input_proj(x) + self.pos_embedding[:, :x.shape[1], :])
+
+    def decode(self, z_q):
+        dec_in = self.latent_proj(z_q) + self.pos_embedding[:, :z_q.shape[1], :]
+        out = self.decoder(dec_in)
+        actions_recon_flat = self.output_proj(out)
+        actions_recon = rearrange(actions_recon_flat, 'b t (p c) -> b t p c', p=88, c=3)
+        return actions_recon
+    
+    def forward(self, actions: torch.Tensor):
+        B,T =actions.shape[:2]
+        x = rearrange(actions, 'b t p c -> b t (p c)') 
+        z_e = self.encode(x)
+        z_e = self.to_latent(z_e)
+
+        z_q, indices, vq_loss = self.rvq(z_e)
+        action_recons = self.decode(z_q)
+        recon_loss = F.mse_loss(action_recons, actions)
+        return {
+            "recon_actions": action_recons,
+            "recon_loss": recon_loss,
+            "vq_loss": vq_loss.mean(),
+            "z_q": z_q,
+            "indices": indices,
+            "z_e": z_e,
+        }
+
+
 class ActVAE(nn.Module):
     def __init__(self, 
                  action_dim=264,       
                  model_dim=512,        
                  latent_dim=512, 
                  num_latents=256,       
-                 enc_layers=15,        
-                 dec_layers=15,       
+                 enc_layers=12,        
+                 dec_layers=12,       
                  nhead=8,
                  dropout=0.1):
         super(ActVAE, self).__init__()
@@ -366,10 +459,11 @@ class ActVAE(nn.Module):
         
         self.to_latent = nn.Linear(model_dim, latent_dim)
         
-        self.vq = VectorQuantizer(
-            num_latents=num_latents,
-            latent_dim=latent_dim,
-            code_restart=True
+        self.vq = VectorQuantize(
+            dim=model_dim,
+            codebook_size=num_latents,
+            codebook_dim=latent_dim,
+            commitment_weight=1.0
         )
         
         self.latent_proj = nn.Linear(latent_dim, model_dim)
@@ -392,25 +486,23 @@ class ActVAE(nn.Module):
         z_e = self.encode(x)
         z_e = self.to_latent(z_e)
         
-        z_q, z, emb, indices = self.vq(z_e)
+        z_q, indices, vq_loss = self.vq(z_e)
         
         actions_recon = self.decode(z_q)
 
         
         recon_loss = nn.functional.mse_loss(actions_recon, actions)
+        total_loss = recon_loss + vq_loss
 
-        codebook_commitment_loss = F.mse_loss(z, z_e.detach())
-
-        codebook_loss =  F.mse_loss(z_e, z.detach())     
+  
 
         return {
             "recon_actions": actions_recon,
             "recon_loss": recon_loss,
-            "commit_loss": codebook_commitment_loss,
-            "codebook_loss": codebook_loss,
             "z_q": z_q,
-            "emb": emb,
-            "indices": indices
+            "indices": indices,
+            "vq_loss": vq_loss,
+            "loss": total_loss
         }
     
     def encode(self, x):
@@ -422,6 +514,11 @@ class ActVAE(nn.Module):
         actions_recon_flat = self.output_proj(out)
         actions_recon = rearrange(actions_recon_flat, 'b t (p c) -> b t p c', p=88, c=3)
         return actions_recon
+
+
+
+
+
 
 
 class LAM(nn.Module):

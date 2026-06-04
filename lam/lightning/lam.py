@@ -42,12 +42,11 @@ class ActVAETraining(L.LightningModule):
 
         batch = self.process_batch(batch)
         output = self.model(batch)
+        loss = output["loss"]
 
-        loss = output["recon_loss"] + self.vq_beta * output["commit_loss"] + output["codebook_loss"]
-        self.log("train/loss", loss)
+        self.log("train/loss", output["loss"])
         self.log("train/recon_loss", output["recon_loss"])
-        self.log("train/commit_loss", output["commit_loss"])
-        self.log("train/codebook_loss", output["codebook_loss"])
+        self.log("train/vq_loss", output["vq_loss"])
 
         return loss
     
@@ -71,10 +70,7 @@ class ActVAETraining(L.LightningModule):
     
 
     def log_trajectory_plot(self, gt_actions, recon_actions):
-        """
-        Génère un graphique de trajectoire en convertissant les tenseurs en float32.
-        """
-        # Ajout du .float() avant le .cpu().numpy()
+
         gt_sample = gt_actions[0, :, 0, :].float().cpu().numpy()          # Shape: (T, 3)
         recon_sample = recon_actions[0, :, 0, :].float().cpu().numpy()    # Shape: (T, 3)
         
