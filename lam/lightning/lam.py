@@ -15,6 +15,37 @@ import matplotlib.pyplot as plt
 from accelerate import PartialState
 
 
+class ResidualActVAETraining(L.LightningModule):
+    def __init__(self,
+                 model: nn.Module,
+                 weight_decay: float=0.01,
+                 scheduler_max_steps: int=200_000):
+        super().__init__()
+        self.save_hyperparameters(ignore=['model'])
+        self.model = model
+        self.weight_decay = weight_decay
+        self.steps = scheduler_max_steps
+        
+    def process_batch(self, batch):
+        if isinstance(batch, list):
+            actions = batch[1]  
+        if isinstance(batch, dict):
+            actions = batch["actions"]
+        return actions
+    
+    def training_step(self, batch, batch_idx):
+
+        batch = self.process_batch(batch)
+        output = self.model(batch)
+        loss = output["loss"]
+
+        self.log("train/loss", output["loss"])
+        self.log("train/recon_loss", output["recon_loss"])
+        self.log("train/vq_loss", output["vq_loss"])
+
+        return loss
+
+
 class ActVAETraining(L.LightningModule):
     def __init__(self,
                  model: nn.Module,
