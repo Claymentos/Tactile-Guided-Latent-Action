@@ -419,6 +419,8 @@ class ResidualActVAE(nn.Module):
         z_q, indices, vq_loss = self.rvq(z_e)
         action_recons = self.decode(z_q)
         recon_loss = F.mse_loss(action_recons, actions)
+        total_loss = recon_loss + vq_loss.mean()
+
         return {
             "recon_actions": action_recons,
             "recon_loss": recon_loss,
@@ -426,6 +428,7 @@ class ResidualActVAE(nn.Module):
             "z_q": z_q,
             "indices": indices,
             "z_e": z_e,
+            "loss": total_loss
         }
 
 

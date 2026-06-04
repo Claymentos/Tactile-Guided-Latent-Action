@@ -44,6 +44,23 @@ class ResidualActVAETraining(L.LightningModule):
         self.log("train/vq_loss", output["vq_loss"])
 
         return loss
+    
+    def validation_step(self, batch, batch_idx):
+
+        batch = self.process_batch(batch)
+        output = self.model(batch)
+
+        loss = output["recon_loss"] + self.vq_beta * output["commit_loss"] + output["codebook_loss"]
+        self.log("train/loss", loss)
+        self.log("train/recon_loss", output["recon_loss"])
+        self.log("train/commit_loss", output["commit_loss"])
+        self.log("train/codebook_loss", output["codebook_loss"])
+
+        if batch_idx == 0:
+            self.log_trajectory_plot(batch, output["recon_actions"])
+
+
+        return loss
 
 
 class ActVAETraining(L.LightningModule):
