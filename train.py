@@ -12,7 +12,7 @@ torch.backends.cudnn.allow_tf32 = True
 torch.set_float32_matmul_precision('high')
 
 
-@hydra.main(version_base=None, config_path="conf", config_name="train_vd_vae")
+@hydra.main(version_base=None, config_path="conf", config_name="train_act_vae")
 def train(config):
     seed_everything(42, workers=True)
 

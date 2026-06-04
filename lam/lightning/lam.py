@@ -18,7 +18,6 @@ from accelerate import PartialState
 class ActVAETraining(L.LightningModule):
     def __init__(self,
                  model: nn.Module,
-                 vq_beta: float=0.25,
                  learning_rate: float = 1e-3,
                  weight_decay: float = 0.01,
                  scheduler_max_steps: int = 200_000,
@@ -26,7 +25,6 @@ class ActVAETraining(L.LightningModule):
         super().__init__()
         self.save_hyperparameters(ignore=['model'])
         self.model = model
-        self.vq_beta = vq_beta
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.steps = scheduler_max_steps

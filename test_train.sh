@@ -1,7 +1,7 @@
 #!/bin/sh
-#SBATCH --job-name=test_train_lam_vae_ego4d
-#SBATCH --output=logs/test_train_lam_vae_ego4d.%j.out
-#SBATCH --error=logs/test_train_lam_vae_ego4d.%j.err 
+#SBATCH --job-name=test_train_act_vae
+#SBATCH --output=logs/test_train_act_vae.%j.out
+#SBATCH --error=logs/test_train_act_vae.%j.err 
 
 #SBATCH -A iyg@h100  # uli remplace par ton nom de projet 
 #SBATCH -C h100
