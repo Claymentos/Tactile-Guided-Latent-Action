@@ -297,15 +297,16 @@ class EgoDexDatasetActionOnly(Dataset):
         self.all_keys = MODELS[keys]['left_keys'] + MODELS[keys]['right_keys'] + MODELS[keys]['body_keys']
         self.hand_and_tip_keys = [MODELS['all']['left_keys'][i] for i in [0, 4, 8, 12, 16, 20]] + [MODELS['all']['right_keys'][i] for i in [0, 4, 8, 12, 16, 20]]
 
-        self.samples = []
-        for file in self.all_files:
-            with h5py.File(file, 'r') as f:
-                n_frames = len(f['transforms']['camera'])
-            for start in range(0, n_frames - max_context_len, max_context_len // 2):
-                self.samples.append((file, start))
+        clip_range = np.arange(0, len(self.all_files))
+        frame_range = np.arange(1, 11)/10
+
+        if evaluate:
+            frame_range = np.array([0.99])
+
+        self.idx_to_data = list(itertools.product(clip_range, frame_range))
 
     def __len__(self):
-        return (len(self.samples))
+        return (len(self.idx_to_data))
 
     def process_annotation(self, annotations, idx, prev_cam_ext=None, do_belief_map=False):
         all_poses = []
