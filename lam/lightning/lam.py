@@ -102,11 +102,11 @@ class ActVAETraining(L.LightningModule):
         batch = self.process_batch(batch)
         output = self.model(batch)
 
-        loss = output["recon_loss"] + self.vq_beta * output["commit_loss"] + output["codebook_loss"]
-        self.log("train/loss", loss)
+        loss = output["loss"]
+
+        self.log("train/loss", output["loss"])
         self.log("train/recon_loss", output["recon_loss"])
-        self.log("train/commit_loss", output["commit_loss"])
-        self.log("train/codebook_loss", output["codebook_loss"])
+        self.log("train/vq_loss", output["vq_loss"])
 
         if batch_idx == 0:
             self.log_trajectory_plot(batch, output["recon_actions"])
