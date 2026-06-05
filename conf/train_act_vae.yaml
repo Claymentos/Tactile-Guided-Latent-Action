@@ -1,7 +1,7 @@
 defaults:
   - _self_
   - algo: act_vae
-  - data: egodex
+  - data: egodex_action_only
 
 checkpoint_path: null       # Set to resume a training run
 

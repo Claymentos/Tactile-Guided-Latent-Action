@@ -275,3 +275,99 @@ class EgoDexDataset(Dataset):
         curr_frames, actions, heatmaps, all_valid_kp = self.process_data(frames, annotations, indices)
 
         return curr_frames, actions, rel_t, heatmaps, all_valid_kp, metadata
+
+
+class EgoDexDatasetActionOnly(Dataset):
+
+    def __init__(self, root_folder, max_context_len=90, num_context=4, train=False, evaluate=False, keys='all'):
+
+        super(EgoDexDataset, self).__init__()
+        if train:
+            self.data_root = os.path.join(root_folder, 'part1')
+        else:
+            self.data_root = os.path.join(root_folder, 'test')
+
+        self.all_tasks = sorted(os.listdir(self.data_root))
+        self.all_files = []
+        for task in self.all_tasks:
+            files = sorted(os.listdir(os.path.join(self.data_root, task)))
+            files = [os.path.join(self.data_root, task, file) for file in files if file.endswith('.mp4')]
+            self.all_files.extend(files)
+
+        self.all_keys = MODELS[keys]['left_keys'] + MODELS[keys]['right_keys'] + MODELS[keys]['body_keys']
+        self.hand_and_tip_keys = [MODELS['all']['left_keys'][i] for i in [0, 4, 8, 12, 16, 20]] + [MODELS['all']['right_keys'][i] for i in [0, 4, 8, 12, 16, 20]]
+
+        self.samples = []
+        for file in self.all_files:
+            with h5py.File(file, 'r') as f:
+                n_frames = len(f['transforms']['camera'])
+            for start in range(0, n_frames - max_context_len, max_context_len // 2):
+                self.samples.append((file, start))
+
+    def __len__(self):
+        return (len(self.samples))
+
+    def process_annotation(self, annotations, idx, prev_cam_ext=None, do_belief_map=False):
+        all_poses = []
+        if prev_cam_ext is None:
+            cam_ext = np.linalg.inv(np.array(annotations['transforms']['camera'][idx]))  # world to camera0 transformation
+            cam_curr = np.linalg.inv(np.array(annotations['transforms']['camera'][idx]))
+        else:
+            cam_ext = prev_cam_ext  # points are represented in the frame of input (not goal) frame for consistency
+            cam_curr = np.linalg.inv(np.array(annotations['transforms']['camera'][idx]))
+        all_u = []
+        all_v = []
+        for key in self.all_keys:
+            pos = np.array(annotations['transforms'][key][idx])[:3,3]  # pos of kp in the world frame
+            pos_hom = np.append(pos,1.)[...,None] # 4 x 1
+            pos_cam = cam_ext @ pos_hom    # pos of kp in the camera frame
+            all_poses.append(pos_cam[:3,0])
+        for key in self.hand_and_tip_keys:
+            pos = np.array(annotations['transforms'][key][idx])[:3,3]  # pos of kp in the world
+            pos_hom = np.append(pos,1.)[...,None] # 4 x 1
+            pos_cam = cam_ext @ pos_hom   # pos of kp in the camera frame
+            u,v = get_pixels_from_kp(pos_hom[:3,0], cam_curr, patch_size=self.patch_size)
+            all_u.append(u)
+            all_v.append(v)
+        if do_belief_map:
+            all_u = np.array(all_u)[...,None]
+            all_v = np.array(all_v)[...,None]
+
+            valid_kp_mask = (all_u > 0) & (all_u < self.img_width) & (all_v > 0) & (all_v < 224)
+            belief_map = create_belief_map(image_resolution=(self.img_width, 224),
+                                                pointsBelief=np.concatenate([all_u,all_v],axis=1))
+        else:
+            belief_map = None
+            valid_kp_mask = None
+
+        cam_pos = np.array(annotations['transforms']['camera'][idx])[:3,3]   # pos of camera in the world frame
+        cam_rot_mat = np.array(annotations['transforms']['camera'][idx])[:3,:3]  # rot of camera in the world frame
+        rotation = R.from_matrix(cam_rot_mat)
+        cam_rot = rotation.as_euler('xyz') # angles in radians
+
+        all_poses.append(cam_pos)
+        all_poses.append(cam_rot)
+        all_poses = np.array(all_poses)
+
+        return all_poses, cam_ext, belief_map, valid_kp_mask
+    
+    def __getitem__(self, index):
+        hdf5_path, start = self.samples[index]
+        indices = list(range(start, start + self.window_size + 1))
+
+        with h5py.File(hdf5_path, 'r') as annotations:
+            actions = []
+            cam_ext = None
+            for ii in range(len(indices) - 1):
+                curr_poses, cam_ext, _, _ = self.process_annotation(
+                    self, annotations, indices[ii],
+                    prev_cam_ext=cam_ext, do_belief_map=False
+                )
+                next_poses, _, _, _ = self.process_annotation(
+                    self, annotations, indices[ii + 1],
+                    prev_cam_ext=cam_ext, do_belief_map=False
+                )
+                actions.append(np.concatenate([curr_poses, next_poses]))
+
+        actions = torch.tensor(np.array(actions), dtype=torch.float32)
+        return {"actions": actions}
