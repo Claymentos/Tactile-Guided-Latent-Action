@@ -79,7 +79,7 @@ class ActVAETraining(L.LightningModule):
 
     def process_batch(self, batch):
         if isinstance(batch, list):
-            actions = batch[1]
+            actions = batch[0]
         elif isinstance(batch, dict):
             actions = batch["actions"]
         return actions
