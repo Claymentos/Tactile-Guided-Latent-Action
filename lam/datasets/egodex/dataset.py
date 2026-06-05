@@ -281,7 +281,7 @@ class EgoDexDatasetActionOnly(Dataset):
 
     def __init__(self, root_folder, max_context_len=90, num_context=4, train=False, evaluate=False, keys='all'):
 
-        super(EgoDexDataset, self).__init__()
+        super(EgoDexDatasetActionOnly, self).__init__()
         if train:
             self.data_root = os.path.join(root_folder, 'part1')
         else:

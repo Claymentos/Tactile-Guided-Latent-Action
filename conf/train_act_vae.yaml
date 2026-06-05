@@ -21,6 +21,8 @@ trainer:
   max_steps: 300_000
   gradient_clip_val: 1.0
   val_check_interval: 0.2
+  accelerator: 'gpu'
+  strategy: 'ddp'
   precision: bf16-mixed
   logger:
     _target_: lightning.pytorch.loggers.WandbLogger

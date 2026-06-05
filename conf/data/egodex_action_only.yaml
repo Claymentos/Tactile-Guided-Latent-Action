@@ -3,5 +3,5 @@ data_module:
   data_path: /lustre/fsmisc/dataset/ml-egodex/
   window_size: 16
   validation_split: 0.1
-  batch_size: 512
+  batch_size: 4096
   num_workers: 6
