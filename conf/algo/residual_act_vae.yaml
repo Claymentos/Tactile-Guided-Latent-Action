@@ -1,0 +1,16 @@
+model:
+  _target_: lam.lam.ResidualActVAE
+  action_dim: 264        # 88 keypoints × 3 coords (comme dans ton decode: p=88, c=3)
+  model_dim: 512         # Dimension interne du transformer (TABLE VIII: Latent Feature Dimension 512)
+  latent_dim: 512        # Dimension des latents (idem Act-VAE du papier)
+  num_quantizers: 4      # Nombre de quantizers RQ (à tuner, ~4-8 est raisonnable)
+  num_latents: 256       # Taille de chaque codebook (TABLE VIII: Codebook Size 256)
+  enc_layers: 15         # TABLE VIII: Architecture Enc 15 layers
+  dec_layers: 15         # TABLE VIII: Architecture Dec 15 layers
+  nhead: 8               # Standard pour model_dim=512
+  dropout: 0.1           # Valeur standard
+  codebook_size: 256     # Redondant avec num_latents mais requis par ResidualVQ
+  codebook_dim: 64       # Dimension interne du codebook (< latent_dim pour compression)
+  decay: 0.99            # EMA decay pour la mise à jour du codebook
+  commitment_weight: 1.0 # TABLE VIII: Commitment Weight β = 1.0
+  kmeans_init: true      # Recommandé pour stabiliser l'entraînement RVQ
