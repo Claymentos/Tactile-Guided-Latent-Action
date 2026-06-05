@@ -129,9 +129,9 @@ class ActVAETraining(L.LightningModule):
         self.val_actions_epoch.append(batch.detach().cpu().view(-1, 88, 3))
 
         # Logs standards
-        self.log("val/loss", output["loss"], sync_dist=True)
-        self.log("val/recon_loss", output["recon_loss"], sync_dist=True)
-        self.log("val/vq_loss", output["vq_loss"], sync_dist=True)
+        self.log("val/loss", output["loss"])
+        self.log("val/recon_loss", output["recon_loss"])
+        self.log("val/vq_loss", output["vq_loss"])
 
 
         return output["loss"]
@@ -154,9 +154,9 @@ class ActVAETraining(L.LightningModule):
         entropy = -torch.sum(probs[probs > 0] * torch.log(probs[probs > 0]))
         perplexity = torch.exp(entropy)
 
-        self.log("val/codebook_active_codes", float(num_active_codes), sync_dist=True)
-        self.log("val/codebook_usage_ratio", usage_ratio, sync_dist=True)
-        self.log("val/codebook_perplexity", perplexity, sync_dist=True)
+        self.log("val/codebook_active_codes", float(num_active_codes))
+        self.log("val/codebook_usage_ratio", usage_ratio)
+        self.log("val/codebook_perplexity", perplexity)
 
         # --- 2. Calcul de la variance Intra-Code ---
         intra_code_variances = []
@@ -168,7 +168,7 @@ class ActVAETraining(L.LightningModule):
         
         if intra_code_variances:
             mean_intra_variance = torch.stack(intra_code_variances).mean()
-            self.log("val/codebook_intra_cluster_variance", mean_intra_variance, sync_dist=True)
+            self.log("val/codebook_intra_cluster_variance", mean_intra_variance)
 
         # --- 3. Visualisations avancées (Toutes les N époques) ---
         if (self.current_epoch + 1) % self.vis_every_n_epochs == 0 and self.logger and hasattr(self.logger, "experiment"):
