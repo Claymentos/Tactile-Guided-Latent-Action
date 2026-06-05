@@ -2,7 +2,7 @@ import torch
 import lightning as L
 from torch.utils.data import DataLoader, random_split
 
-from lam.datasets.egodex.dataset import EgoDexDataset, EgoDexDatasetActionOnly
+from lam.datasets.egodex.dataset import EgoDexDataset, EgoDexActionsOnlyDataset
 
 class EgoDexActionOnlyDataModule(L.LightningDataModule):
     def __init__(self,
@@ -20,7 +20,7 @@ class EgoDexActionOnlyDataModule(L.LightningDataModule):
 
     def setup(self, stage):
 
-        dataset = EgoDexDatasetActionOnly(root_folder=self.data_path,
+        dataset = EgoDexActionsOnlyDataset(root_folder=self.data_path,
                                           max_context_len=self.window_size,
                                           num_context=4,
                                           train=True,

@@ -277,11 +277,11 @@ class EgoDexDataset(Dataset):
         return curr_frames, actions, rel_t, heatmaps, all_valid_kp, metadata
 
 
-class EgoDexDatasetActionOnly(Dataset):
-
-    def __init__(self, root_folder, max_context_len=90, num_context=4, train=False, evaluate=False, keys='all'):
-
-        super(EgoDexDatasetActionOnly, self).__init__()
+class EgoDexActionsOnlyDataset(Dataset):
+    def __init__(self, root_folder, max_context_len=90, num_context=4, 
+                 train=False, evaluate=False, keys='all', var_time=False):
+        super(EgoDexActionsOnlyDataset, self).__init__()
+        
         if train:
             self.data_root = os.path.join(root_folder, 'part1')
         else:
@@ -289,86 +289,132 @@ class EgoDexDatasetActionOnly(Dataset):
 
         self.all_tasks = sorted(os.listdir(self.data_root))
         self.all_files = []
+        
+        # 1. On cherche directement les fichiers .hdf5 au lieu des .mp4
         for task in self.all_tasks:
             files = sorted(os.listdir(os.path.join(self.data_root, task)))
-            files = [os.path.join(self.data_root, task, file) for file in files if file.endswith('.mp4')]
+            files = [os.path.join(self.data_root, task, file) for file in files if file.endswith('.hdf5')]
             self.all_files.extend(files)
 
+        self.max_context_len = max_context_len
+        self.num_context = num_context
+        self.train = train
+        self.keys = keys
+        self.var_time = var_time
         self.all_keys = MODELS[keys]['left_keys'] + MODELS[keys]['right_keys'] + MODELS[keys]['body_keys']
-        self.hand_and_tip_keys = [MODELS['all']['left_keys'][i] for i in [0, 4, 8, 12, 16, 20]] + [MODELS['all']['right_keys'][i] for i in [0, 4, 8, 12, 16, 20]]
-
+        
         clip_range = np.arange(0, len(self.all_files))
         frame_range = np.arange(1, 11)/10
-
         if evaluate:
             frame_range = np.array([0.99])
 
         self.idx_to_data = list(itertools.product(clip_range, frame_range))
 
     def __len__(self):
-        return (len(self.idx_to_data))
+        return len(self.idx_to_data)
 
-    def process_annotation(self, annotations, idx, prev_cam_ext=None, do_belief_map=False):
+    # 2. Suppression de la méthode image_transform (inutile sans vidéo)
+
+    def process_annotation(self, annotations, idx, prev_cam_ext=None):
+        """
+        Version simplifiée : on ne calcule que les poses 3D et les transformations, 
+        sans les pixels 2D ni les belief maps.
+        """
         all_poses = []
         if prev_cam_ext is None:
-            cam_ext = np.linalg.inv(np.array(annotations['transforms']['camera'][idx]))  # world to camera0 transformation
-            cam_curr = np.linalg.inv(np.array(annotations['transforms']['camera'][idx]))
+            cam_ext = np.linalg.inv(np.array(annotations['transforms']['camera'][idx]))
         else:
-            cam_ext = prev_cam_ext  # points are represented in the frame of input (not goal) frame for consistency
-            cam_curr = np.linalg.inv(np.array(annotations['transforms']['camera'][idx]))
-        all_u = []
-        all_v = []
+            cam_ext = prev_cam_ext  
+
         for key in self.all_keys:
-            pos = np.array(annotations['transforms'][key][idx])[:3,3]  # pos of kp in the world frame
-            pos_hom = np.append(pos,1.)[...,None] # 4 x 1
-            pos_cam = cam_ext @ pos_hom    # pos of kp in the camera frame
+            pos = np.array(annotations['transforms'][key][idx])[:3,3]  # pos of kp in world
+            pos_hom = np.append(pos,1.)[...,None] 
+            pos_cam = cam_ext @ pos_hom    # pos of kp in camera frame
             all_poses.append(pos_cam[:3,0])
-        for key in self.hand_and_tip_keys:
-            pos = np.array(annotations['transforms'][key][idx])[:3,3]  # pos of kp in the world
-            pos_hom = np.append(pos,1.)[...,None] # 4 x 1
-            pos_cam = cam_ext @ pos_hom   # pos of kp in the camera frame
-            u,v = get_pixels_from_kp(pos_hom[:3,0], cam_curr, patch_size=self.patch_size)
-            all_u.append(u)
-            all_v.append(v)
-        if do_belief_map:
-            all_u = np.array(all_u)[...,None]
-            all_v = np.array(all_v)[...,None]
-
-            valid_kp_mask = (all_u > 0) & (all_u < self.img_width) & (all_v > 0) & (all_v < 224)
-            belief_map = create_belief_map(image_resolution=(self.img_width, 224),
-                                                pointsBelief=np.concatenate([all_u,all_v],axis=1))
-        else:
-            belief_map = None
-            valid_kp_mask = None
-
-        cam_pos = np.array(annotations['transforms']['camera'][idx])[:3,3]   # pos of camera in the world frame
-        cam_rot_mat = np.array(annotations['transforms']['camera'][idx])[:3,:3]  # rot of camera in the world frame
+            
+        cam_pos = np.array(annotations['transforms']['camera'][idx])[:3,3]
+        cam_rot_mat = np.array(annotations['transforms']['camera'][idx])[:3,:3]
         rotation = R.from_matrix(cam_rot_mat)
-        cam_rot = rotation.as_euler('xyz') # angles in radians
+        cam_rot = rotation.as_euler('xyz') 
 
         all_poses.append(cam_pos)
         all_poses.append(cam_rot)
         all_poses = np.array(all_poses)
 
-        return all_poses, cam_ext, belief_map, valid_kp_mask
-    
-    def __getitem__(self, index):
-        hdf5_path, start = self.samples[index]
-        indices = list(range(start, start + self.window_size + 1))
+        return all_poses, cam_ext
 
-        with h5py.File(hdf5_path, 'r') as annotations:
-            actions = []
-            cam_ext = None
-            for ii in range(len(indices) - 1):
-                curr_poses, cam_ext, _, _ = self.process_annotation(
-                    self, annotations, indices[ii],
-                    prev_cam_ext=cam_ext, do_belief_map=False
-                )
-                next_poses, _, _, _ = self.process_annotation(
-                    self, annotations, indices[ii + 1],
-                    prev_cam_ext=cam_ext, do_belief_map=False
-                )
-                actions.append(np.concatenate([curr_poses, next_poses]))
+    def process_data(self, annotations, indices):
+        """
+        Version simplifiée : ne retourne que les actions, plus d'images ni de heatmaps.
+        """
+        actions = []
 
-        actions = torch.tensor(np.array(actions), dtype=torch.float32)
-        return {"actions": actions}
+        for ii in range(len(indices)-1):
+            idx = indices[ii]
+            goal_idx = indices[ii+1]
+            
+            if ii == 0:
+                curr_poses, cam_ext = self.process_annotation(annotations, idx)
+            else:
+                curr_poses, _ = self.process_annotation(annotations, idx, cam_ext)
+                
+            next_poses, _ = self.process_annotation(annotations, goal_idx, cam_ext)
+
+            all_actions = np.concatenate([curr_poses, next_poses])
+            actions.append(all_actions)
+
+        actions = torch.Tensor(np.array(actions))
+        return actions
+
+    def __getitem__(self, idx):
+        clip_id, frame_segment = self.idx_to_data[idx]
+        clip_file = self.all_files[clip_id]  # C'est maintenant directement le .hdf5
+        
+        # 3. On ouvre le fichier HDF5 en premier pour connaître la longueur de la séquence
+        annotations = h5py.File(clip_file, 'r')
+        
+        # On déduit le nombre de "frames" (états) à partir de la taille du tableau des caméras
+        seq_len = len(annotations['transforms']['camera'])
+        
+        max_context_len = self.max_context_len
+        frame_skip = int(self.max_context_len / self.num_context)
+        
+        # 4. Logique de sélection des indices basée sur seq_len au lieu de len(vr)
+        if seq_len > max_context_len:
+            frame_id_max = int(max_context_len + frame_segment * (seq_len - max_context_len)) - 1
+            frame_id_min = frame_id_max - max_context_len
+            frame_id = np.random.randint(low=frame_id_min, high=frame_id_max)
+        else:
+            max_context_len = (seq_len - 1) // frame_skip * frame_skip
+            frame_id = (seq_len - 1) // frame_skip * frame_skip
+
+        metadata = {}
+        metadata['vid_file'] = clip_file.replace('.hdf5', '.mp4') # Au cas où vous auriez besoin du nom original
+
+        if self.var_time:
+            indices = random.sample(range(frame_id - max_context_len, frame_id), min(self.num_context, len(range(frame_id - max_context_len, frame_id))))
+            indices = np.sort(indices).tolist()
+        else:
+            indices = list(range(frame_id - max_context_len, frame_id, frame_skip))
+
+        if len(indices) == 0:
+            indices = [0]
+
+        if len(indices) < self.num_context:
+            pad_count = self.num_context - len(indices)
+            indices = [indices[0]] * pad_count + indices
+            
+        indices.append(frame_id)
+        indices = np.sort(indices)
+        indices = np.clip(indices, 0, seq_len - 1) # On clip par rapport à seq_len
+        
+        rel_t = indices[1:] - indices[:-1]
+        metadata['indices'] = torch.Tensor(np.array(indices))
+
+        # 5. On ne passe plus 'frames' à process_data
+        actions = self.process_data(annotations, indices)
+        
+        annotations.close() # Bonne pratique : fermer le fichier HDF5
+
+        # On ne retourne plus que les données pertinentes
+        return actions, rel_t, metadata
