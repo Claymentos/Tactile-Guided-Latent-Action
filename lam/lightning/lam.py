@@ -62,6 +62,18 @@ class ResidualActVAETraining(L.LightningModule):
 
         return loss
 
+    def configure_optimizers(self):
+            vq_params = list(self.model.vq.parameters())
+            base_params = [p for n, p in self.model.named_parameters() if 'vq' not in n]
+
+            optimizer = torch.optim.AdamW([
+                {'params': base_params, 'lr': 2e-5},
+                {'params': vq_params, 'lr': 1e-3}
+            ], weight_decay=self.weight_decay)
+            
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.steps)
+            return [optimizer], [{'scheduler': scheduler, 'interval': 'step', 'frequency': 1}]
+
 
 class ActVAETraining(L.LightningModule):
     def __init__(self,
