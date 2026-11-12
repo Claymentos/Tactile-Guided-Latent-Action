@@ -47,7 +47,7 @@ trainer:
     name: tactile_lam_egotouch
     save_dir: ${trainer.default_root_dir}
     mode: offline
-    project: LAM
+    project: Tactile-guided-Latent-Action
     resume: allow
     save_code: true
   callbacks:
