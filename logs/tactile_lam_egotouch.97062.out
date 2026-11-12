@@ -1,0 +1,9 @@
+jzxh010
+Sanity Checking: |          | 0/? [00:00<?, ?it/s]Sanity Checking:   0%|          | 0/2 [00:00<?, ?it/s]Sanity Checking DataLoader 0:   0%|          | 0/2 [00:00<?, ?it/s]frames shape: torch.Size([32, 3, 128, 160]), torch.Size([32, 3, 128, 160])
+frames shape: torch.Size([32, 3, 128, 160]), torch.Size([32, 3, 128, 160])
+frames shape: torch.Size([32, 3, 128, 160]), torch.Size([32, 3, 128, 160])
+frames shape: torch.Size([32, 3, 128, 160]), torch.Size([32, 3, 128, 160])
+frames shape: torch.Size([32, 3, 128, 160]), torch.Size([32, 3, 128, 160])
+[1;34mwandb[0m: 
+[1;34mwandb[0m: You can sync this run to the cloud by running:
+[1;34mwandb[0m: [1mwandb sync ./runs/wandb/offline-run-20261112_145224-ndorbaek[0m

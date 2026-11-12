@@ -1,0 +1,42 @@
+Loading pytorch-gpu/py3/2.8.0
+  Loading requirement: gcc/11.5.0 cuda/12.8.0 openmpi/4.1.6-cuda
+    nccl/2.27.3-1-cuda cudnn/9.10.2.21-12-cuda intel-oneapi-mkl/2024.1
+    magma/2.9.0-cuda sox/14.4.2 ffmpeg/6.1.1-cuda hdf5/1.12.0-mpi-cuda
+    libjpeg-turbo/2.1.3 libpng/1.6.37 libwebp/1.2.2 graphviz/2.49.0
+[rank: 0] Seed set to 42
+2026-11-12 14:57:52.624 +01:00 | WARNING  | vector_quantize_pytorch.vector_quantize_pytorch:__init__:397 - `threshold_ema_dead_code` is deprecated, please use `dead_code_threshold_ratio` (a ratio in [0, 1) of the mean cluster size, e.g. 0.1) instead
+Using bfloat16 Automatic Mixed Precision (AMP)
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+wandb: WARNING `start_method` is deprecated and will be removed in a future version of wandb. This setting is currently non-functional and safely ignored.
+wandb: WARNING `resume` will be ignored since W&B syncing is set to `offline`. Starting a new run with run id caj8k1vm.
+wandb: Tracking run with wandb version 0.21.1
+wandb: W&B syncing is set to `offline` in this directory. Run `wandb online` or set WANDB_MODE=online to enable cloud syncing.
+wandb: Run data is saved locally in ./runs/wandb/offline-run-20261112_145754-caj8k1vm
+/lustre/fshomisc/sup/pub/miniforge/24.11.3/envs/pytorch-gpu-2.8.0+py3.12.11/lib/python3.12/site-packages/lightning/pytorch/callbacks/model_checkpoint.py:701: Checkpoint directory ./runs/wandb/offline-run-20261112_145754-caj8k1vm/files/../checkpoints/ exists and is not empty.
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+/lustre/fshomisc/sup/pub/miniforge/24.11.3/envs/pytorch-gpu-2.8.0+py3.12.11/lib/python3.12/site-packages/lightning/pytorch/utilities/model_summary/model_summary.py:231: Precision bf16-mixed is not supported by the model summary.  Estimated model size in MB will not be accurate. Using 32 bits instead.
+
+  | Name  | Type       | Params | Mode 
+---------------------------------------------
+0 | model | TactileLAM | 148 M  | train
+---------------------------------------------
+148 M     Trainable params
+0         Non-trainable params
+148 M     Total params
+592.128   Total estimated model params size (MB)
+551       Modules in train mode
+0         Modules in eval mode
+SLURM auto-requeueing enabled. Setting signal handlers.
+/lustre/fshomisc/sup/pub/miniforge/24.11.3/envs/pytorch-gpu-2.8.0+py3.12.11/lib/python3.12/site-packages/lightning/pytorch/utilities/data.py:79: Trying to infer the `batch_size` from an ambiguous collection. The batch size we found is 32. To avoid any miscalculations, use `self.log(..., batch_size=batch_size)`.
+wandb: WARNING `format` argument was not provided, defaulting to `gif`. This parameter will be required in v0.20.0, please specify the format explicitly.
+wandb: Encoding video...
+wandb: WARNING `format` argument was not provided, defaulting to `gif`. This parameter will be required in v0.20.0, please specify the format explicitly.
+wandb: Encoding video...
+wandb: WARNING `format` argument was not provided, defaulting to `gif`. This parameter will be required in v0.20.0, please specify the format explicitly.
+wandb: Encoding video...
+wandb: WARNING `format` argument was not provided, defaulting to `gif`. This parameter will be required in v0.20.0, please specify the format explicitly.
+wandb: Encoding video...
+/lustre/fshomisc/sup/pub/miniforge/24.11.3/envs/pytorch-gpu-2.8.0+py3.12.11/lib/python3.12/site-packages/lightning/pytorch/utilities/data.py:79: Trying to infer the `batch_size` from an ambiguous collection. The batch size we found is 14. To avoid any miscalculations, use `self.log(..., batch_size=batch_size)`.
+`Trainer.fit` stopped: `max_steps=300` reached.
