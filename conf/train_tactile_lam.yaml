@@ -1,0 +1,57 @@
+defaults:
+  - algo: tactile_lam
+  - algo/quantization: vq
+  - algo/feature_extractor: identity
+  - algo/perceptual_regularizer: none
+  - data: egotouch
+  - metrics: metrics
+  - _self_                  # last: the values below override the groups above
+
+checkpoint_path: null       # Set to resume a training run
+
+algo:
+  feature_extractor:
+    model:
+      image_size: [128, 160]       # EgoTouch frames are 4:3: 128 x 171, cropped to whole 16-pixel patches
+
+data:
+  data_module:
+    img_size: ${algo.feature_extractor.model.image_size.0}
+    patch_size: ${algo.feature_extractor.model.patch_size}
+    normalize: false               # LAM takes frames in [0, 1]
+
+lightning_module:
+  _target_: lam.lightning.lam.TactileLAMTraining
+  model: ${algo.model}
+  camera: ${data.data_module.camera}
+  tactile_loss_weight: 0.01        # the tactile terms sum to ~3 at the start, the pixel MSE is ~1e-2: keeps them comparable
+  learning_rate: 1e-4
+  weight_decay: 1e-4
+  scheduler_max_steps: ${trainer.max_steps}
+  codebook_replace_freq: 0.05
+  metrics: ${metrics}
+  compute_metrics_every_n_steps: ${trainer.log_every_n_steps}
+  commit_loss_weight: 10.0
+  perceptual_loss_weight: 0.01
+
+trainer:
+  _target_: lightning.Trainer
+  default_root_dir: ./runs
+  fast_dev_run: false
+  log_every_n_steps: 100
+  max_steps: 300_000
+  gradient_clip_val: 1.0
+  precision: bf16-mixed
+  logger:
+    _target_: lightning.pytorch.loggers.WandbLogger
+    name: tactile_lam_egotouch
+    save_dir: ${trainer.default_root_dir}
+    mode: offline
+    project: LAM
+    resume: allow
+    save_code: true
+  callbacks:
+    - _target_: lightning.pytorch.callbacks.LearningRateMonitor
+      logging_interval: step
+    - _target_: lightning.pytorch.callbacks.ModelCheckpoint
+      every_n_train_steps: 30_000

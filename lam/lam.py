@@ -14,6 +14,8 @@ from transformers import T5EncoderModel, T5Tokenizer
 from lam.genie.modules.blocks import VectorQuantizer                                                    
 from vector_quantize_pytorch import VectorQuantize, ResidualVQ
 from lam.lightning.lam import ActVAETraining
+from lam.tactile import (ALL_BEND_CELLS, ALL_PRESSURE_CELLS, CONTACT_THRESHOLD, TactileDecoder, TactileEncoder,
+                         canonical_cells, cells_to_maps, f1_score, zero_init)
 
 
 IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
@@ -331,7 +333,271 @@ class VDVAE(nn.Module):
         z_va, _ = self.inv_encoder(f_t, f_t_H)
         z_qa, _, act_indices = self.quantize_on_frozen_codebook(z_va, self.act_codebook)
         return z_qa, act_indices
-        
+
+
+class TactileForwardDecoder(nn.Module):
+    """Predicts the gloves at t+H from the frame t, the gloves at t and the action latent only."""
+
+    def __init__(self,
+                 model_dim: int,
+                 n_layers: int,
+                 n_heads: int,
+                 act_latent_dim: int,
+                 dropout: float):
+        super().__init__()
+        self.act_proj = nn.Linear(act_latent_dim, model_dim)
+        self.layers = nn.ModuleList([
+            SpatioBlock(model_dim, n_heads, dropout) for _ in range(n_layers)
+        ])
+        self.norm = nn.LayerNorm(model_dim)
+
+    def forward(self, f_t: torch.Tensor, tactile_tokens: torch.Tensor, z_qa: torch.Tensor) -> torch.Tensor:
+        num_patches = f_t.shape[1]
+        x = torch.cat([f_t, tactile_tokens], dim=1) + self.act_proj(z_qa).unsqueeze(1)
+        x = x.unsqueeze(1)
+        for layer in self.layers:
+            x = layer(x)
+        return self.norm(x.squeeze(1))[:, num_patches:]
+
+
+class TactileTargetMixin:
+    """The tactile target shared by TactileVDVAE and TactileLAM: a forward model predicts the gloves at t+H (pressure,
+    contacts, finger flexion) from the frame t, the gloves at t and the action latent only. The gloves change with the
+    fingers and the contacts, not with the camera or the arm, so the action latent has to encode what the fingers did.
+
+    tactile_target=False is the baseline: the tactile forward model is still trained, but on a detached action latent,
+    so that its errors measure how much the latent knows about the fingers without being pushed to."""
+
+    def init_tactile_target(self,
+                            model_dim: int,
+                            act_latent_dim: int,
+                            nhead: int,
+                            tactile_dec_layers: int,
+                            pressure_weight: float,
+                            contact_weight: float,
+                            bend_weight: float,
+                            contact_cells_weight: float,
+                            contact_pos_weight: float,
+                            tactile_target: bool):
+        self.tactile_target = tactile_target
+        self.pressure_weight = pressure_weight
+        self.contact_weight = contact_weight
+        self.bend_weight = bend_weight
+        self.contact_cells_weight = contact_cells_weight
+        self.register_buffer('contact_pos_weight', torch.tensor(contact_pos_weight), persistent=False)
+
+        self.tactile_encoder = TactileEncoder(model_dim)
+        self.tactile_fwd_decoder = TactileForwardDecoder(model_dim=model_dim, n_layers=tactile_dec_layers, n_heads=nhead,
+                                                         act_latent_dim=act_latent_dim, dropout=0.1)
+        self.tactile_decoder = TactileDecoder(model_dim)
+
+    def predict_tactile(self, context: torch.Tensor, tactile_t: torch.Tensor, z_a: torch.Tensor):
+        """(N, P, D) patches of the frames t, (N, 2, 21, 21) gloves at t, (N, D_a) action latents -> the tactile decoder's
+        outputs (pressure change, contact logits, bend change)."""
+        if not self.tactile_target:
+            context, z_a = context.detach(), z_a.detach()
+        tokens = self.tactile_fwd_decoder(context, self.tactile_encoder(tactile_t), z_a)
+        return self.tactile_decoder(tokens)
+
+    def tactile_losses(self, tactile_prediction, tactile_t: torch.Tensor, tactile_t_H: torch.Tensor) -> Dict[str, torch.Tensor]:
+        delta_pressure, contact_logits, delta_bend = tactile_prediction
+        cells_t, cells_t_H = canonical_cells(tactile_t), canonical_cells(tactile_t_H)
+        pressure_t, pressure_t_H = cells_t[..., ALL_PRESSURE_CELLS], cells_t_H[..., ALL_PRESSURE_CELLS]
+        bend_t, bend_t_H = cells_t[..., ALL_BEND_CELLS], cells_t_H[..., ALL_BEND_CELLS]
+        contact_t, contact_t_H = pressure_t > CONTACT_THRESHOLD, pressure_t_H > CONTACT_THRESHOLD
+        pressure_hat, bend_hat = pressure_t + delta_pressure, bend_t + delta_bend
+
+        # the maps are sparse: without these weights, predicting no contact at all is already a good score
+        cell_weights = 1.0 + self.contact_cells_weight * (contact_t | contact_t_H).to(pressure_t.dtype)
+        loss_pressure = (cell_weights * (pressure_hat - pressure_t_H) ** 2).sum() / cell_weights.sum()
+        loss_contact = F.binary_cross_entropy_with_logits(contact_logits, contact_t_H.to(contact_logits.dtype),
+                                                          pos_weight=self.contact_pos_weight.to(contact_logits.dtype))
+        loss_bend = F.mse_loss(bend_hat, bend_t_H)
+
+        return {
+            "loss_tactile": self.pressure_weight * loss_pressure + self.contact_weight * loss_contact + self.bend_weight * loss_bend,
+            "loss_pressure": loss_pressure.detach(),
+            "loss_contact": loss_contact.detach(),
+            "loss_bend": loss_bend.detach(),
+            # baselines "nothing changes" for each error
+            "pressure_mae": (pressure_hat - pressure_t_H).abs().mean().detach(),
+            "pressure_mae_copy": (pressure_t - pressure_t_H).abs().mean(),
+            "bend_mae": (bend_hat - bend_t_H).abs().mean().detach(),
+            "bend_mae_copy": (bend_t - bend_t_H).abs().mean(),
+            "contact_f1": f1_score(contact_logits > 0, contact_t_H),
+            "contact_f1_copy": f1_score(contact_t, contact_t_H),
+        }
+
+    @staticmethod
+    def predicted_maps(tactile_prediction, tactile_t: torch.Tensor) -> torch.Tensor:
+        """The predicted gloves at t+H as (N, 2, 21, 21) maps, as the dataset draws them."""
+        delta_pressure, _, delta_bend = tactile_prediction
+        cells_t = canonical_cells(tactile_t)
+        pressure = (cells_t[..., ALL_PRESSURE_CELLS] + delta_pressure).clamp(0, 1)
+        bend = (cells_t[..., ALL_BEND_CELLS] + delta_bend).clamp(0, 1)
+        return cells_to_maps(pressure, bend)
+
+
+class TactileVDVAE(TactileTargetMixin, nn.Module):
+    """VDVAE trained without action labels, whose action latent is pushed towards the fine movements of the hands by
+    touch.
+
+    The IDM only sees the video. Two forward models read its latents:
+      - the video one predicts the DINOv3 patches of t+H from those of t, z_a and z_env;
+      - the tactile one predicts the gloves at t+H (pressure, contacts, finger flexion) from the frame t, the gloves at
+        t and z_a only. The gloves change with the fingers and the contacts, not with the camera or the arm, and z_a is
+        its only way to know how they changed: z_a has to encode what the fingers did, read from the video.
+    Touch is only a training target: the trained IDM runs on videos without gloves.
+
+    tactile_target=False is the baseline: the tactile forward model is still trained, but on a detached z_a, so that
+    its errors measure how much z_a knows about the fingers without being pushed to.
+    """
+
+    def __init__(self,
+                 dino_repo: str,
+                 dino_weights: str,
+                 model_dim: int,
+                 act_latent_dim: int,
+                 env_latent_dim: int,
+                 act_codebook_size: int,
+                 env_codebook_size: int,
+                 nhead: int,
+                 enc_layers: int,
+                 dec_layers: int,
+                 tactile_dec_layers: int,
+                 lambda_rec: float,
+                 lambda_tactile: float,
+                 lambda_vq: float,
+                 lambda_reg: float,
+                 pressure_weight: float,
+                 contact_weight: float,
+                 bend_weight: float,
+                 contact_cells_weight: float,
+                 contact_pos_weight: float,
+                 commitment_weight: float,
+                 vq_args: Optional[dict] = None,
+                 tactile_target: bool = True):
+        super().__init__()
+        self.lambda_rec = lambda_rec
+        self.lambda_tactile = lambda_tactile
+        self.lambda_vq = lambda_vq
+        self.lambda_reg = lambda_reg
+
+        self.feature_extractor = torch.hub.load(dino_repo, 'dinov3_vitb16', source='local', weights=dino_weights)
+        self.feature_extractor.requires_grad_(False)
+        self.feature_extractor.eval()
+        feature_dim = self.feature_extractor.embed_dim
+
+        self.feature_proj = nn.Linear(feature_dim, model_dim)
+        self.inv_encoder = InverseDynamicEncoder(model_dim=model_dim, n_layers=enc_layers, n_heads=nhead,
+                                                 act_latent_dim=act_latent_dim, env_latent_dim=env_latent_dim, dropout=0.1)
+        self.fwd_decoder = ForwardDynamicsDecoder(model_dim=model_dim, n_layers=dec_layers, n_heads=nhead,
+                                                  act_latent_dim=act_latent_dim, env_latent_dim=env_latent_dim, dropout=0.1)
+        self.feature_head = nn.Linear(model_dim, feature_dim)
+        zero_init(self.feature_head)
+
+        self.init_tactile_target(model_dim=model_dim, act_latent_dim=act_latent_dim, nhead=nhead,
+                                 tactile_dec_layers=tactile_dec_layers, pressure_weight=pressure_weight,
+                                 contact_weight=contact_weight, bend_weight=bend_weight,
+                                 contact_cells_weight=contact_cells_weight, contact_pos_weight=contact_pos_weight,
+                                 tactile_target=tactile_target)
+
+        vq_args = dict(vq_args or {})
+        self.act_vq = VectorQuantize(dim=act_latent_dim, codebook_size=act_codebook_size,
+                                     commitment_weight=commitment_weight, **vq_args)
+        self.env_vq = VectorQuantize(dim=env_latent_dim, codebook_size=env_codebook_size,
+                                     commitment_weight=commitment_weight, **vq_args)
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        self.feature_extractor.eval()  # stays frozen, Lightning sets the whole module to train mode
+        return self
+
+    @torch.no_grad()
+    def extract_features(self, frames: torch.Tensor) -> torch.Tensor:
+        """(B, T, 3, H, W) -> (B, T, P, F)"""
+        B = frames.shape[0]
+        tokens = self.feature_extractor.forward_features(frames.flatten(0, 1))["x_norm_patchtokens"]
+        return rearrange(tokens, '(b t) p f -> b t p f', b=B)
+
+    def encode(self, video_t: torch.Tensor, video_t_H: torch.Tensor):
+        """The IDM, from the video only: latents before and after quantization, code indices and commitment losses."""
+        z_va, z_vi = self.inv_encoder(video_t, video_t_H)
+        z_qa, act_indices, loss_vq_act = self.act_vq(z_va)
+        z_qi, env_indices, loss_vq_env = self.env_vq(z_vi)
+        return z_va, z_vi, z_qa, z_qi, act_indices, env_indices, loss_vq_act, loss_vq_env
+
+    def decode(self, features_t: torch.Tensor, video_t: torch.Tensor, tactile_t: torch.Tensor, z_qa: torch.Tensor, z_qi: torch.Tensor):
+        """Both forward models: the DINOv3 patches of t+H, and the tactile decoder's outputs (pressure change, contact
+        logits, bend change)."""
+        # the video forward model predicts the change of the DINOv3 patches
+        features_hat = features_t + self.feature_head(self.fwd_decoder(video_t, z_qa, z_qi))
+
+        # the tactile forward model only gets z_a, not z_env
+        return features_hat, self.predict_tactile(video_t, tactile_t, z_qa)
+
+    @torch.no_grad()
+    def visualize(self, frames: torch.Tensor, tactile: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """Predictions of every transition of the clips, with the inferred action latents ('recon') and with action codes
+        drawn at random from the codebook ('imagined', environment latents kept). frames (B, T+1, 3, H, W), tactile
+        (B, T+1, 2, 21, 21) -> features_* (B, T, P, F) and tactile_* (B, T, 2, 21, 21) for the frames 1..T."""
+        B = frames.shape[0]
+        features = self.extract_features(frames)
+        features_t, features_t_H = features[:, :-1].flatten(0, 1), features[:, 1:].flatten(0, 1)
+        tactile_t = tactile[:, :-1].flatten(0, 1)
+        video_t, video_t_H = self.feature_proj(features_t), self.feature_proj(features_t_H)
+        _, _, z_qa, z_qi, _, _, _, _ = self.encode(video_t, video_t_H)
+        random_indices = torch.randint(0, self.act_vq.codebook_size, (z_qa.shape[0],), device=z_qa.device)
+        z_random = self.act_vq.get_output_from_indices(random_indices).to(z_qa.dtype)
+
+        outputs = {"features_target": features[:, 1:], "tactile_target": tactile[:, 1:]}
+        for name, z in (("recon", z_qa), ("imagined", z_random)):
+            features_hat, tactile_prediction = self.decode(features_t, video_t, tactile_t, z, z_qi)
+            outputs[f"features_{name}"] = features_hat.unflatten(0, (B, -1))
+            outputs[f"tactile_{name}"] = self.predicted_maps(tactile_prediction, tactile_t).unflatten(0, (B, -1))
+        return outputs
+
+    def forward(self, frames: torch.Tensor, tactile: torch.Tensor, rel_t: Optional[torch.Tensor] = None,
+                shuffle_latent: bool = False) -> Dict[str, torch.Tensor]:
+        """frames (B, T+1, 3, H, W), tactile (B, T+1, 2, 21, 21), rel_t (B, T). Every pair of consecutive frames is a
+        transition, except the ones repeating a frame to pad a short episode. shuffle_latent gives both forward models
+        the latents of other transitions: how much worse they get measures how much they rely on the latents."""
+        features = self.extract_features(frames)
+        keep = (rel_t > 0).flatten() if rel_t is not None else torch.ones_like(tactile[:, 1:, 0, 0, 0], dtype=torch.bool).flatten()
+        features_t, features_t_H = features[:, :-1].flatten(0, 1)[keep], features[:, 1:].flatten(0, 1)[keep]
+        tactile_t, tactile_t_H = tactile[:, :-1].flatten(0, 1)[keep], tactile[:, 1:].flatten(0, 1)[keep]
+
+        video_t, video_t_H = self.feature_proj(features_t), self.feature_proj(features_t_H)
+        z_va, z_vi, z_qa, z_qi, act_indices, env_indices, loss_vq_act, loss_vq_env = self.encode(video_t, video_t_H)
+        if shuffle_latent:
+            permutation = torch.randperm(z_qa.shape[0], device=z_qa.device)
+            z_qa, z_qi = z_qa[permutation], z_qi[permutation]
+
+        features_hat, tactile_prediction = self.decode(features_t, video_t, tactile_t, z_qa, z_qi)
+        loss_recon = F.mse_loss(features_hat, features_t_H)
+        outputs = self.tactile_losses(tactile_prediction, tactile_t, tactile_t_H)
+
+        loss_reg = z_vi.abs().mean()
+        outputs.update({
+            "loss": self.lambda_rec * loss_recon + self.lambda_tactile * outputs["loss_tactile"]
+                    + self.lambda_vq * (loss_vq_act + loss_vq_env) + self.lambda_reg * loss_reg,
+            "loss_recon": loss_recon,
+            "loss_recon_copy": F.mse_loss(features_t, features_t_H),
+            "loss_vq_act": loss_vq_act,
+            "loss_vq_env": loss_vq_env,
+            "loss_reg": loss_reg,
+            "act_codes_used": act_indices.unique().numel() * 1.0,
+            "env_codes_used": env_indices.unique().numel() * 1.0,
+        })
+        return outputs
+
+    @torch.no_grad()
+    def get_action_token(self, frame_t: torch.Tensor, frame_t_H: torch.Tensor):
+        """(B, 3, H, W) twice -> quantized action latents and their indices, from the video only."""
+        features = self.extract_features(torch.stack([frame_t, frame_t_H], dim=1))
+        _, _, z_qa, _, act_indices, _, _, _ = self.encode(self.feature_proj(features[:, 0]), self.feature_proj(features[:, 1]))
+        return z_qa, act_indices
+
 
 class ResidualActVAE(nn.Module):
     def __init__(self,
@@ -612,6 +878,69 @@ class LAM(nn.Module):
         action_tokens, indices, commit_loss = self.vq.quantize(readout)
 
         return action_tokens, indices
+
+
+class TactileLAM(TactileTargetMixin, LAM):
+    """LAM (LAPA) whose action tokens are also pushed towards the fine movements of the hands by touch.
+
+    LAM is unchanged: the spatio-temporal encoder reads the clip and outputs one action token per transition, the decoder
+    predicts the frame t+1 from the frame t and its action token. Added: the tactile forward model (TactileTargetMixin)
+    predicts the gloves at t+1 from the features of the frame t, the gloves at t and the action token. LAM has a single
+    latent, so the action tokens carry everything touch requires. Touch is only a training target: get_latent_actions
+    still reads the video only.
+    """
+
+    def __init__(self,
+                 encoder,
+                 decoder,
+                 vq,
+                 feature_extractor,
+                 model_dim: int,
+                 nhead: int,
+                 tactile_dec_layers: int,
+                 pressure_weight: float,
+                 contact_weight: float,
+                 bend_weight: float,
+                 contact_cells_weight: float,
+                 contact_pos_weight: float,
+                 tactile_target: bool = True,
+                 perceptual_regularizer=None,
+                 num_register_tokens=0,
+                 register_dropout_mean=0.0,
+                 register_dropout_std=0.0):
+        super().__init__(encoder=encoder, decoder=decoder, vq=vq, feature_extractor=feature_extractor,
+                         perceptual_regularizer=perceptual_regularizer, num_register_tokens=num_register_tokens,
+                         register_dropout_mean=register_dropout_mean, register_dropout_std=register_dropout_std)
+        self.init_tactile_target(model_dim=model_dim, act_latent_dim=model_dim, nhead=nhead,
+                                 tactile_dec_layers=tactile_dec_layers, pressure_weight=pressure_weight,
+                                 contact_weight=contact_weight, bend_weight=bend_weight,
+                                 contact_cells_weight=contact_cells_weight, contact_pos_weight=contact_pos_weight,
+                                 tactile_target=tactile_target)
+
+    def forward(self, x, tactile):
+        """
+        arguments:
+        x: torch.Tensor, shape (batch_size, seq_len, channels, height, width)
+        tactile: torch.Tensor, shape (batch_size, seq_len, 2, 21, 21), the gloves of every frame
+        returns: LAM's outputs, the tactile losses and metrics, and tactile_prediction (the tactile decoder's outputs for
+        every transition, flattened over batch and time)
+        """
+        output = super().forward(x)
+        tactile_t, tactile_t_H = tactile[:, :-1].flatten(0, 1), tactile[:, 1:].flatten(0, 1)
+        context = output["features"][:, :-1].flatten(0, 1)
+        tactile_prediction = self.predict_tactile(context, tactile_t, output["action_tokens"].flatten(0, 1).to(context.dtype))
+        output.update(self.tactile_losses(tactile_prediction, tactile_t, tactile_t_H))
+        output["tactile_prediction"] = tactile_prediction
+        return output
+
+    @torch.no_grad()
+    def tactile_with_random_actions(self, features, tactile):
+        """The tactile decoder's outputs with action tokens drawn at random from the codebook, like LAMTraining's
+        reconstruct_with_random_actions for the video. features (B, T, P, D), tactile (B, T, 2, 21, 21)."""
+        B, T = tactile.shape[:2]
+        indices = torch.randint(0, self.vq.codebook_size, (B, T - 1), device=tactile.device)
+        tokens = self.vq.dequantize(indices).flatten(0, 1).to(features.dtype)
+        return self.predict_tactile(features[:, :-1].flatten(0, 1), tactile[:, :-1].flatten(0, 1), tokens)
 
 
 class ChunkLAM(nn.Module):

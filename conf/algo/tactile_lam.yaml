@@ -1,0 +1,40 @@
+model:
+  _target_: lam.lam.TactileLAM
+  feature_extractor: ${algo.feature_extractor.model}
+  perceptual_regularizer: ${algo.perceptual_regularizer.model}
+  encoder:
+    _target_: lam.st.STTransformer
+    model_dim: ${algo.feature_extractor.model.model_dim}
+    n_layer: 18
+    num_spatial_heads: 8
+    num_temporal_heads: ${algo.model.encoder.num_spatial_heads}
+    dropout: 0.1
+    image_size: ${algo.feature_extractor.model.image_size}
+    patch_size: ${algo.feature_extractor.model.patch_size}
+    max_seq_len: 16
+    add_readout_token: true
+  decoder:
+    _target_: lam.st.Transformer
+    model_dim: ${algo.feature_extractor.model.model_dim}
+    n_layer: ${algo.model.encoder.n_layer}
+    num_spatial_heads: ${algo.model.encoder.num_spatial_heads}
+    dropout: ${algo.model.encoder.dropout}
+    image_size: ${algo.feature_extractor.model.image_size}
+    patch_size: ${algo.feature_extractor.model.patch_size}
+  vq: ${algo.quantization.vq}
+  num_register_tokens: 0
+  register_dropout_mean: 0.0
+  register_dropout_std: 0.0
+
+  # tactile target
+  tactile_target: true             # false: baseline, touch does not shape the action tokens (the tactile model reads them detached)
+  model_dim: ${algo.feature_extractor.model.model_dim}
+  nhead: ${algo.model.encoder.num_spatial_heads}
+  tactile_dec_layers: 4
+  # each tactile term is about 1 for the "nothing changes" baseline over 4 frames (measured on EgoTouch):
+  # contact-weighted pressure MSE ~1e-2, bend MSE ~2.6e-3, contact BCE ~0.5-1
+  pressure_weight: 100.0
+  bend_weight: 400.0
+  contact_weight: 1.0
+  contact_cells_weight: 9.0        # extra weight of the cells in contact at t or t+1 in the pressure regression
+  contact_pos_weight: 5.0

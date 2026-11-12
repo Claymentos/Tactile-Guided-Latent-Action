@@ -10,6 +10,10 @@ from torch.optim import AdamW, Optimizer
 from torch import Tensor
 
 from lam.metrics import _compute_metrics
+import matplotlib
+import numpy as np
+import torch.nn.functional as F
+from lightning.pytorch.loggers import WandbLogger
 OptimizerCallable = Callable[[Iterable], Optimizer]
 import matplotlib.pyplot as plt
 from accelerate import PartialState
@@ -551,5 +555,208 @@ class VDVAETraining(L.LightningModule):
         
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.hparams.scheduler_max_steps)
         return [optimizer], [{'scheduler': scheduler, 'interval': 'step', 'frequency': 1}]
-        
-        
+
+
+def viridis_colormap() -> Tensor:
+    """(256, 3) RGB lookup table, to color the tactile maps."""
+    return torch.tensor(matplotlib.colormaps['viridis'](np.linspace(0, 1, 256))[:, :3], dtype=torch.float32)
+
+
+def tactile_to_rgb(maps, mask, size, colormap):
+    """(B, T, 2, 21, 21) maps in [0, 1] and (B, 2, 21, 21) glove masks -> (B, T, 3, H, W), the left glove on the left,
+    black off the glove, on a grey background."""
+    rgb = colormap[(maps.clamp(0, 1) * 255).round().long()] * mask[:, None, ..., None]   # (B, T, 2, 21, 21, 3)
+    cells = maps.shape[-1]
+    scale = min(size[0], size[1] // 2) // cells
+    rgb = rgb.repeat_interleave(scale, dim=-3).repeat_interleave(scale, dim=-2).permute(0, 1, 2, 5, 3, 4)
+    canvas = rgb.new_full((*maps.shape[:2], 3, *size), 0.25)   # grey, to tell the panels apart
+    side, top = cells * scale, (size[0] - cells * scale) // 2
+    for glove in range(2):
+        left = glove * size[1] // 2 + (size[1] // 2 - side) // 2
+        canvas[..., top:top + side, left:left + side] = rgb[:, :, glove]
+    return canvas
+
+
+class TactileVDVAETraining(L.LightningModule):
+    """Trains lam.lam.TactileVDVAE on lam.lightning.egotouch.EgoTouchDataModule batches."""
+    LOGGED = ('loss', 'loss_recon', 'loss_recon_copy', 'loss_tactile', 'loss_pressure', 'loss_contact', 'loss_bend',
+              'loss_vq_act', 'loss_vq_env', 'loss_reg', 'pressure_mae', 'pressure_mae_copy', 'bend_mae', 'bend_mae_copy',
+              'contact_f1', 'contact_f1_copy', 'act_codes_used', 'env_codes_used')
+    LOGGED_SHUFFLED = ('loss_recon', 'pressure_mae', 'bend_mae', 'contact_f1')
+
+    def __init__(self,
+                 model: nn.Module,
+                 camera: str = 'chest',
+                 learning_rate: float = 2e-4,
+                 weight_decay: float = 1e-4,
+                 scheduler_max_steps: int = 100_000,
+                 num_logged_samples: int = 4,
+                 image_mean: Tuple[float, ...] = (0.485, 0.456, 0.406),   # the dataset's normalization, to show the frames
+                 image_std: Tuple[float, ...] = (0.229, 0.224, 0.225)):
+        super().__init__()
+        self.save_hyperparameters(ignore=['model'])
+        self.model = model
+        self.register_buffer('colormap', viridis_colormap(), persistent=False)
+
+    def shared_step(self, batch, **kwargs):
+        videos, tactile, _, rel_t, _ = batch
+        frames = videos[self.hparams.camera]
+        return self.model(frames, tactile, rel_t, **kwargs), frames.shape[0]
+
+    def training_step(self, batch, batch_idx):
+        output, batch_size = self.shared_step(batch)
+        for key in self.LOGGED:
+            self.log(f"train/{key}", output[key], batch_size=batch_size)
+        return output["loss"]
+
+    def validation_step(self, batch, batch_idx):
+        output, batch_size = self.shared_step(batch)
+        for key in self.LOGGED:
+            self.log(f"val/{key}", output[key], batch_size=batch_size)
+
+        # with the latents of other transitions: the gap to the real ones is what the latents carry
+        shuffled, _ = self.shared_step(batch, shuffle_latent=True)
+        for key in self.LOGGED_SHUFFLED:
+            self.log(f"val/shuffled_latent_{key}", shuffled[key], batch_size=batch_size)
+
+        if batch_idx == 0 and isinstance(self.logger, WandbLogger):
+            self.log_videos(batch)
+        return output["loss"]
+
+    @torch.no_grad()
+    def log_videos(self, batch):
+        """One video frame per transition, one row per clip: the frame t+H, then the DINOv3 patches of t+H (real,
+        predicted from the inferred action, predicted from a random action), then the gloves at t+H (same order).
+        There is no DINOv3 decoder back to pixels: the patches are drawn as their 3 principal components."""
+        videos, tactile, tactile_mask, _, _ = batch
+        n = self.hparams.num_logged_samples
+        frames, tactile, tactile_mask = videos[self.hparams.camera][:n], tactile[:n], tactile_mask[:n]
+        outputs = self.model.visualize(frames, tactile)
+
+        mean = torch.tensor(self.hparams.image_mean, device=frames.device).view(1, 1, 3, 1, 1)
+        std = torch.tensor(self.hparams.image_std, device=frames.device).view(1, 1, 3, 1, 1)
+        images = (frames[:, 1:].float() * std + mean).clamp(0, 1)
+        size = images.shape[-2:]
+        with torch.autocast(device_type=frames.device.type, enabled=False):  # no QR decomposition in bfloat16
+            features = self.features_to_rgb([outputs[f"features_{k}"] for k in ("target", "recon", "imagined")], size)
+        touch = [self.tactile_to_rgb(outputs[f"tactile_{k}"], tactile_mask, size) for k in ("target", "recon", "imagined")]
+
+        panels = [images, *features, *touch]
+        B, T = images.shape[:2]
+        x = torch.stack([make_grid([panel[b, t] for b in range(B) for panel in panels], nrow=len(panels)) for t in range(T)])
+        caption = "frame t+H | DINOv3 PCA: real, reconstructed, imagined | touch: real, reconstructed, imagined"
+        self.logger.experiment.log({"val_videos": wandb.Video((x * 255).to('cpu', torch.uint8).numpy(), fps=2, caption=caption)})
+
+    @staticmethod
+    def features_to_rgb(features, size):
+        """[(B, T, P, F)] -> [(B, T, 3, H, W)]: the 3 principal components of each clip's real patches (the first
+        tensor), colors scaled on them, so that the predictions are drawn in the same colors."""
+        B, T, P, _ = features[0].shape
+        patch = round((size[0] * size[1] / P) ** 0.5)
+        grid = (size[0] // patch, size[1] // patch)
+        images = [[] for _ in features]
+        for b in range(B):
+            target = features[0][b].flatten(0, 1).float()
+            center = target.mean(0)
+            _, _, components = torch.pca_lowrank(target - center, q=3, center=False)
+            projected = [(f[b].float() - center) @ components for f in features]       # (T, P, 3) each
+            low, high = projected[0].flatten(0, 1).min(0).values, projected[0].flatten(0, 1).max(0).values
+            for i, p in enumerate(projected):
+                rgb = ((p - low) / (high - low).clamp(min=1e-6)).clamp(0, 1)
+                rgb = rgb.transpose(1, 2).unflatten(-1, grid)                            # (T, 3, h, w)
+                images[i].append(F.interpolate(rgb, size=size, mode='nearest'))
+        return [torch.stack(i) for i in images]
+
+    def tactile_to_rgb(self, maps, mask, size):
+        return tactile_to_rgb(maps, mask, size, self.colormap)
+
+    def configure_optimizers(self):
+        parameters = [p for p in self.model.parameters() if p.requires_grad]
+        optimizer = torch.optim.AdamW(parameters, lr=self.hparams.learning_rate, weight_decay=self.hparams.weight_decay)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.hparams.scheduler_max_steps)
+        return [optimizer], [{'scheduler': scheduler, 'interval': 'step', 'frequency': 1}]
+
+
+class TactileLAMTraining(LAMTraining):
+    """Trains lam.lam.TactileLAM on lam.lightning.egotouch.EgoTouchDataModule batches (frames in [0, 1]: normalize=False).
+
+    LAMTraining's loss, metrics and validation videos are kept; the tactile loss is added with tactile_loss_weight. In
+    validation, the tactile predictions with random action tokens are logged as val/imagined_* (the tactile counterpart
+    of delta_psnr), and a second video shows the gloves at t+1: real, reconstructed, imagined with random actions.
+    """
+    TACTILE_LOGGED = ('loss_tactile', 'loss_pressure', 'loss_contact', 'loss_bend', 'pressure_mae', 'pressure_mae_copy',
+                      'bend_mae', 'bend_mae_copy', 'contact_f1', 'contact_f1_copy')
+    TACTILE_IMAGINED = ('pressure_mae', 'bend_mae', 'contact_f1')
+
+    def __init__(self,
+                 model: nn.Module,
+                 camera: str = 'chest',
+                 tactile_loss_weight: float = 0.01,
+                 num_logged_samples: int = 4,
+                 **kwargs):
+        super().__init__(model, **kwargs)
+        self.camera = camera
+        self.tactile_loss_weight = tactile_loss_weight
+        self.num_logged_samples = num_logged_samples
+        self.register_buffer('colormap', viridis_colormap(), persistent=False)
+
+    def shared_step(self, batch, prefix):
+        videos, tactile, tactile_mask, _, _ = batch
+        images = videos[self.camera]
+        output = self.model(images, tactile)
+        loss = (output["recon_loss"] + self.commit_loss_weight * output["commit_loss"]
+                + self.perceptual_loss_weight * output["perceptual_loss"] + self.tactile_loss_weight * output["loss_tactile"])
+
+        batch_size = images.shape[0]
+        self.log(f"{prefix}/loss", loss, batch_size=batch_size)
+        for key in ("recon_loss", "perceptual_loss", "commit_loss", *self.TACTILE_LOGGED):
+            self.log(f"{prefix}/{key}", output[key], batch_size=batch_size)
+        return images, tactile, tactile_mask, output, loss
+
+    def training_step(self, batch, batch_idx):
+        images, _, _, output, loss = self.shared_step(batch, "train")
+
+        if batch_idx % self.compute_metrics_every_n_steps == 0 and output["recon_video"] is not None:
+            with torch.no_grad():
+                self.compute_metrics(images, output["recon_video"], output["features"], output["recon_features"], output["indices"], output["action_tokens"], prefix="train")
+
+        self.replace_unused_codebook_entries()      # Only used in NSVQ
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        images, tactile, tactile_mask, output, loss = self.shared_step(batch, "val")
+
+        imagined = self.model.tactile_with_random_actions(output["features"], tactile)
+        imagined_metrics = self.model.tactile_losses(imagined, tactile[:, :-1].flatten(0, 1), tactile[:, 1:].flatten(0, 1))
+        for key in self.TACTILE_IMAGINED:
+            self.log(f"val/imagined_{key}", imagined_metrics[key], batch_size=images.shape[0])
+
+        # without a pixel decoder (DINO features and no decoder_path), there is no video to compute the image metrics on
+        random_reconstruction = None
+        if output["recon_video"] is not None:
+            random_reconstruction = self.compute_metrics(images, output["recon_video"], output["features"], output["recon_features"], output["indices"], output["action_tokens"], prefix="val", return_random_reconstruction=True)
+
+        if batch_idx == 0 and isinstance(self.logger, WandbLogger):
+            if output["recon_video"] is not None and images.shape[0] >= 4:      # LAMTraining.log_videos shows 4 clips
+                self.log_videos(images, output["recon_video"], random_reconstruction)
+            self.log_tactile_videos(images, tactile, tactile_mask, output["tactile_prediction"], imagined)
+        return loss
+
+    @torch.no_grad()
+    def log_tactile_videos(self, images, tactile, tactile_mask, tactile_prediction, imagined):
+        """One video frame per transition, one row per clip: the frame t+1, then the gloves at t+1 (real, reconstructed
+        from the inferred action, imagined from a random action)."""
+        n = self.num_logged_samples
+        B, T = tactile.shape[:2]
+        tactile_t = tactile[:, :-1].flatten(0, 1)
+        maps = {"real": tactile[:, 1:],
+                "reconstructed": self.model.predicted_maps(tactile_prediction, tactile_t).unflatten(0, (B, T - 1)),
+                "imagined": self.model.predicted_maps(imagined, tactile_t).unflatten(0, (B, T - 1))}
+        frames = images[:n, 1:].float().clamp(0, 1)
+        size = frames.shape[-2:]
+        panels = [frames] + [tactile_to_rgb(m[:n].float(), tactile_mask[:n], size, self.colormap) for m in maps.values()]
+
+        x = torch.stack([make_grid([panel[b, t] for b in range(frames.shape[0]) for panel in panels], nrow=len(panels))
+                         for t in range(T - 1)])
+        caption = "frame t+1 | touch: " + ", ".join(maps)
+        self.logger.experiment.log({"val_tactile_videos": wandb.Video((x * 255).to('cpu', torch.uint8).numpy(), fps=2, caption=caption)})

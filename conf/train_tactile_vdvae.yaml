@@ -1,0 +1,37 @@
+defaults:
+  - _self_
+  - algo: tactile_vdvae
+  - data: egotouch
+
+checkpoint_path: null       # Set to resume a training run
+
+lightning_module:
+  _target_: lam.lightning.lam.TactileVDVAETraining
+  model: ${algo.model}
+  camera: ${data.data_module.camera}
+  learning_rate: 2e-4
+  weight_decay: 1e-4
+  scheduler_max_steps: ${trainer.max_steps}
+
+
+trainer:
+  _target_: lightning.Trainer
+  default_root_dir: ./runs
+  fast_dev_run: false
+  log_every_n_steps: 50
+  max_steps: 100_000
+  gradient_clip_val: 1.0
+  precision: bf16-mixed
+  logger:
+    _target_: lightning.pytorch.loggers.WandbLogger
+    name: tactile_vdvae_egotouch
+    save_dir: ${trainer.default_root_dir}
+    mode: offline
+    project: LAM
+    resume: allow
+    save_code: true
+  callbacks:
+    - _target_: lightning.pytorch.callbacks.LearningRateMonitor
+      logging_interval: step
+    - _target_: lightning.pytorch.callbacks.ModelCheckpoint
+      every_n_train_steps: 10_000

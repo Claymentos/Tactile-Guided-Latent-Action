@@ -1,0 +1,36 @@
+model:
+  _target_: lam.lam.TactileVDVAE
+  dino_repo: dinov3                # relative to the repository root, where train.py is launched
+  dino_weights: weights/dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth
+
+  tactile_target: true             # false: baseline, touch does not shape the latents (the tactile model reads a detached z_a)
+
+  model_dim: 512
+  act_latent_dim: 512
+  env_latent_dim: 256
+  act_codebook_size: 8
+  env_codebook_size: 8
+  vq_args:                         # the settings of conf/algo/quantization/vq.yaml
+    use_cosine_sim: true
+    codebook_dim: 32
+    decay: 0.8
+    kmeans_init: false
+    threshold_ema_dead_code: 2
+  nhead: 8
+  enc_layers: 12
+  dec_layers: 12
+  tactile_dec_layers: 4
+
+  lambda_rec: 1.0
+  lambda_tactile: 1.0              # the main knob: higher pushes z_a further towards the fingers
+  lambda_vq: 1.0
+  lambda_reg: 0.01
+  commitment_weight: 0.25
+
+  # each tactile term is about 1 for the "nothing changes" baseline over 4 frames (measured on EgoTouch):
+  # contact-weighted pressure MSE ~1e-2, bend MSE ~2.6e-3, contact BCE ~0.5-1
+  pressure_weight: 100.0
+  bend_weight: 400.0
+  contact_weight: 1.0
+  contact_cells_weight: 9.0        # extra weight of the cells in contact at t or t+H in the pressure regression
+  contact_pos_weight: 5.0
