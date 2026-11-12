@@ -18,15 +18,13 @@
 echo ${SLURM_NODELIST}
 
 export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
-export PYTHONPATH=/lustre/fswork/projects/rech/iyg/uvx44rt/LAM:$PYTHONPATH
-export PYTHONPATH=/lustre/fswork/projects/rech/iyg/uvx44rt/LAM/dlimp:$PYTHONPATHexport PATH=$PATH:/linkhome/rech/genkmw01/uvx44rt/.local/bin
 module purge
 module load arch/h100 # a charger absolument avec H100 mais à retirer avec v100
 # module load pytorch-gpu/py3/2.7.0 # là tu charge le module pytorhc que tu veux
-module load miniforge/25.9.1
-module load ffmpeg/4.2.2
+module load pytorch-gpu/py3/2.8.0
 
-conda activate lam 
+export PYTHONUSERBASE=$WORK/.local_lam_pt2.8
+export PYTHONPATH=/lustre/fswork/projects/rech/iyg/uvx44rt/Tactile-Guided-Latent-Action:$PYTHONPATH
 proj_name=Tactile-guided-Latent-Action
 device_id=0
 export WANDB_MODE=offline

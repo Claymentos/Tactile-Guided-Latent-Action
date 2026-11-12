@@ -786,10 +786,6 @@ class ActVAE(nn.Module):
 
 
 
-
-
-
-
 class LAM(nn.Module):
     def __init__(self,
                  encoder,
