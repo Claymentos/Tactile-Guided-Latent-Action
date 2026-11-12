@@ -27,7 +27,7 @@ model:
   register_dropout_std: 0.0
 
   # tactile target
-  tactile_target: true             # false: baseline, touch does not shape the action tokens (the tactile model reads them detached)
+  tactile_target: false             # false: baseline, touch does not shape the action tokens (the tactile model reads them detached)
   model_dim: ${algo.feature_extractor.model.model_dim}
   nhead: ${algo.model.encoder.num_spatial_heads}
   tactile_dec_layers: 4
