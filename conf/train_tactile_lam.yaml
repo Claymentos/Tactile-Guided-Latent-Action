@@ -44,7 +44,7 @@ trainer:
   precision: bf16-mixed
   logger:
     _target_: lightning.pytorch.loggers.WandbLogger
-    name: tactile_lam_egotouch
+    name: tactile_lam_egotouch_window_size_40
     save_dir: ${trainer.default_root_dir}
     mode: offline
     project: Tactile-guided-Latent-Action

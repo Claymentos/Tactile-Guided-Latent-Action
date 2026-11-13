@@ -2,12 +2,14 @@ data_module:
   _target_: lam.lightning.egotouch.EgoTouchDataModule
   data_path: /lustre/fsn1/projects/rech/iyg/uvx44rt/egotouch/data            # must contain split.json, next to the scene folders
   camera: chest
-  window_size: 16                  # 4 frames between samples with num_context=4, about 0.13 s at 30 Hz
+  window_size: 40                  # 4 frames between samples with num_context=4, about 0.13 s at 30 Hz
   num_context: 4
   patch_size: 16                   # the patch size of dinov3_vitb16
   img_size: 224
   aug: false
   backbone_name: dinov3
+  tactile_repr: grid               # mano_uv: the taxels on the MANO UV map shared with ARCTIC, mano_vertex: on its vertices
+  mano_uv_path: /lustre/fsn1/projects/rech/iyg/uvx44rt/mano/mano_uv.npz  # written by lam/datasets/build_mano_uv.py
   val_split: val
-  batch_size: 32                   # about 2 GB of GPU memory per sample: use 4 on a 16 GB GPU
+  batch_size: 64                   # about 2 GB of GPU memory per sample: use 4 on a 16 GB GPU
   num_workers: 6

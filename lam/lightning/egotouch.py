@@ -15,6 +15,8 @@ class EgoTouchDataModule(L.LightningDataModule):
                  aug: bool = False,
                  backbone_name: str = 'dinov3',
                  normalize: bool = True,
+                 tactile_repr: str = 'grid',
+                 mano_uv_path: str = None,
                  val_split: str = 'val',
                  batch_size: int = 32,
                  num_workers: int = 6):
@@ -25,7 +27,7 @@ class EgoTouchDataModule(L.LightningDataModule):
         self.aug = aug
         self.dataset_args = dict(root_folder=data_path, max_context_len=window_size, num_context=num_context,
                                  patch_size=patch_size, img_size=img_size, backbone_name=backbone_name, cameras=(camera,),
-                                 normalize=normalize)
+                                 normalize=normalize, tactile_repr=tactile_repr, mano_uv_path=mano_uv_path)
 
     def setup(self, stage):
         self.train_dataset = EgoTouchDataset(train=True, aug=self.aug, **self.dataset_args)

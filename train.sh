@@ -1,7 +1,7 @@
 #!/bin/sh
-#SBATCH --job-name=train_no_tacile_lam_egotouch
-#SBATCH --output=logs/train_no_tacile_lam_egotouch.%j.out
-#SBATCH --error=logs/train_no_tacile_lam_egotouch.%j.err 
+#SBATCH --job-name=train_no_tacile_lam_egotouch_window_size_40
+#SBATCH --output=logs/train_no_tacile_lam_egotouch_window_size_40.%j.out
+#SBATCH --error=logs/train_no_tacile_lam_egotouch_window_size_40.%j.err 
 
 #SBATCH -A iyg@h100  # uli remplace par ton nom de projet 
 #SBATCH -C h100

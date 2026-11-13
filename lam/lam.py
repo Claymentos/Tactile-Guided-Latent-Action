@@ -360,85 +360,7 @@ class TactileForwardDecoder(nn.Module):
         return self.norm(x.squeeze(1))[:, num_patches:]
 
 
-class TactileTargetMixin:
-    """The tactile target shared by TactileVDVAE and TactileLAM: a forward model predicts the gloves at t+H (pressure,
-    contacts, finger flexion) from the frame t, the gloves at t and the action latent only. The gloves change with the
-    fingers and the contacts, not with the camera or the arm, so the action latent has to encode what the fingers did.
-
-    tactile_target=False is the baseline: the tactile forward model is still trained, but on a detached action latent,
-    so that its errors measure how much the latent knows about the fingers without being pushed to."""
-
-    def init_tactile_target(self,
-                            model_dim: int,
-                            act_latent_dim: int,
-                            nhead: int,
-                            tactile_dec_layers: int,
-                            pressure_weight: float,
-                            contact_weight: float,
-                            bend_weight: float,
-                            contact_cells_weight: float,
-                            contact_pos_weight: float,
-                            tactile_target: bool):
-        self.tactile_target = tactile_target
-        self.pressure_weight = pressure_weight
-        self.contact_weight = contact_weight
-        self.bend_weight = bend_weight
-        self.contact_cells_weight = contact_cells_weight
-        self.register_buffer('contact_pos_weight', torch.tensor(contact_pos_weight), persistent=False)
-
-        self.tactile_encoder = TactileEncoder(model_dim)
-        self.tactile_fwd_decoder = TactileForwardDecoder(model_dim=model_dim, n_layers=tactile_dec_layers, n_heads=nhead,
-                                                         act_latent_dim=act_latent_dim, dropout=0.1)
-        self.tactile_decoder = TactileDecoder(model_dim)
-
-    def predict_tactile(self, context: torch.Tensor, tactile_t: torch.Tensor, z_a: torch.Tensor):
-        """(N, P, D) patches of the frames t, (N, 2, 21, 21) gloves at t, (N, D_a) action latents -> the tactile decoder's
-        outputs (pressure change, contact logits, bend change)."""
-        if not self.tactile_target:
-            context, z_a = context.detach(), z_a.detach()
-        tokens = self.tactile_fwd_decoder(context, self.tactile_encoder(tactile_t), z_a)
-        return self.tactile_decoder(tokens)
-
-    def tactile_losses(self, tactile_prediction, tactile_t: torch.Tensor, tactile_t_H: torch.Tensor) -> Dict[str, torch.Tensor]:
-        delta_pressure, contact_logits, delta_bend = tactile_prediction
-        cells_t, cells_t_H = canonical_cells(tactile_t), canonical_cells(tactile_t_H)
-        pressure_t, pressure_t_H = cells_t[..., ALL_PRESSURE_CELLS], cells_t_H[..., ALL_PRESSURE_CELLS]
-        bend_t, bend_t_H = cells_t[..., ALL_BEND_CELLS], cells_t_H[..., ALL_BEND_CELLS]
-        contact_t, contact_t_H = pressure_t > CONTACT_THRESHOLD, pressure_t_H > CONTACT_THRESHOLD
-        pressure_hat, bend_hat = pressure_t + delta_pressure, bend_t + delta_bend
-
-        # the maps are sparse: without these weights, predicting no contact at all is already a good score
-        cell_weights = 1.0 + self.contact_cells_weight * (contact_t | contact_t_H).to(pressure_t.dtype)
-        loss_pressure = (cell_weights * (pressure_hat - pressure_t_H) ** 2).sum() / cell_weights.sum()
-        loss_contact = F.binary_cross_entropy_with_logits(contact_logits, contact_t_H.to(contact_logits.dtype),
-                                                          pos_weight=self.contact_pos_weight.to(contact_logits.dtype))
-        loss_bend = F.mse_loss(bend_hat, bend_t_H)
-
-        return {
-            "loss_tactile": self.pressure_weight * loss_pressure + self.contact_weight * loss_contact + self.bend_weight * loss_bend,
-            "loss_pressure": loss_pressure.detach(),
-            "loss_contact": loss_contact.detach(),
-            "loss_bend": loss_bend.detach(),
-            # baselines "nothing changes" for each error
-            "pressure_mae": (pressure_hat - pressure_t_H).abs().mean().detach(),
-            "pressure_mae_copy": (pressure_t - pressure_t_H).abs().mean(),
-            "bend_mae": (bend_hat - bend_t_H).abs().mean().detach(),
-            "bend_mae_copy": (bend_t - bend_t_H).abs().mean(),
-            "contact_f1": f1_score(contact_logits > 0, contact_t_H),
-            "contact_f1_copy": f1_score(contact_t, contact_t_H),
-        }
-
-    @staticmethod
-    def predicted_maps(tactile_prediction, tactile_t: torch.Tensor) -> torch.Tensor:
-        """The predicted gloves at t+H as (N, 2, 21, 21) maps, as the dataset draws them."""
-        delta_pressure, _, delta_bend = tactile_prediction
-        cells_t = canonical_cells(tactile_t)
-        pressure = (cells_t[..., ALL_PRESSURE_CELLS] + delta_pressure).clamp(0, 1)
-        bend = (cells_t[..., ALL_BEND_CELLS] + delta_bend).clamp(0, 1)
-        return cells_to_maps(pressure, bend)
-
-
-class TactileVDVAE(TactileTargetMixin, nn.Module):
+class TactileVDVAE(nn.Module):
     """VDVAE trained without action labels, whose action latent is pushed towards the fine movements of the hands by
     touch.
 
@@ -478,30 +400,47 @@ class TactileVDVAE(TactileTargetMixin, nn.Module):
                  vq_args: Optional[dict] = None,
                  tactile_target: bool = True):
         super().__init__()
+        # poids des termes de la loss totale
         self.lambda_rec = lambda_rec
         self.lambda_tactile = lambda_tactile
         self.lambda_vq = lambda_vq
         self.lambda_reg = lambda_reg
 
+        # ---------- vidéo ----------
+        # DINOv3 ViT-B/16 gelé : images -> patchs de features (F = 768)
         self.feature_extractor = torch.hub.load(dino_repo, 'dinov3_vitb16', source='local', weights=dino_weights)
         self.feature_extractor.requires_grad_(False)
         self.feature_extractor.eval()
         feature_dim = self.feature_extractor.embed_dim
 
-        self.feature_proj = nn.Linear(feature_dim, model_dim)
+        self.feature_proj = nn.Linear(feature_dim, model_dim)                   # F -> D
+        # IDM : (patchs t, patchs t+H) -> z_a (action) et z_env (environnement), avant quantification
         self.inv_encoder = InverseDynamicEncoder(model_dim=model_dim, n_layers=enc_layers, n_heads=nhead,
                                                  act_latent_dim=act_latent_dim, env_latent_dim=env_latent_dim, dropout=0.1)
+        # modèle direct vidéo : (patchs t, z_a, z_env) -> tokens de t+H
         self.fwd_decoder = ForwardDynamicsDecoder(model_dim=model_dim, n_layers=dec_layers, n_heads=nhead,
                                                   act_latent_dim=act_latent_dim, env_latent_dim=env_latent_dim, dropout=0.1)
+        # D -> F : changement des features DINOv3, initialisé à 0 (au départ, prédit « rien ne change »)
         self.feature_head = nn.Linear(model_dim, feature_dim)
         zero_init(self.feature_head)
 
-        self.init_tactile_target(model_dim=model_dim, act_latent_dim=act_latent_dim, nhead=nhead,
-                                 tactile_dec_layers=tactile_dec_layers, pressure_weight=pressure_weight,
-                                 contact_weight=contact_weight, bend_weight=bend_weight,
-                                 contact_cells_weight=contact_cells_weight, contact_pos_weight=contact_pos_weight,
-                                 tactile_target=tactile_target)
+        # ---------- toucher ----------
+        self.tactile_target = tactile_target                                    # False : baseline, z_a lu détaché
+        self.pressure_weight = pressure_weight
+        self.contact_weight = contact_weight
+        self.bend_weight = bend_weight
+        self.contact_cells_weight = contact_cells_weight                        # poids en plus des cases en contact
+        self.register_buffer('contact_pos_weight', torch.tensor(contact_pos_weight), persistent=False)   # BCE des contacts
 
+        # gants à t -> 12 tokens (2 gants x 6 régions)
+        self.tactile_encoder = TactileEncoder(model_dim)
+        # (patchs t, tokens des gants à t, z_a) -> tokens des gants à t+H
+        self.tactile_fwd_decoder = TactileForwardDecoder(model_dim=model_dim, n_layers=tactile_dec_layers, n_heads=nhead,
+                                                         act_latent_dim=act_latent_dim, dropout=0.1)
+        # tokens -> changement de pression, logits de contact, changement de flexion
+        self.tactile_decoder = TactileDecoder(model_dim)
+
+        # ---------- quantification ----------
         vq_args = dict(vq_args or {})
         self.act_vq = VectorQuantize(dim=act_latent_dim, codebook_size=act_codebook_size,
                                      commitment_weight=commitment_weight, **vq_args)
@@ -527,6 +466,15 @@ class TactileVDVAE(TactileTargetMixin, nn.Module):
         z_qi, env_indices, loss_vq_env = self.env_vq(z_vi)
         return z_va, z_vi, z_qa, z_qi, act_indices, env_indices, loss_vq_act, loss_vq_env
 
+    def predict_tactile(self, context: torch.Tensor, tactile_t: torch.Tensor, z_a: torch.Tensor):
+        """(N, P, D) patches of the frames t, (N, 2, 21, 21) gloves at t, (N, D_a) action latents -> the tactile decoder's
+        outputs (pressure change, contact logits, bend change)."""
+        if not self.tactile_target:
+            # baseline : la loss tactile ne remonte ni dans z_a ni dans le contexte, elle n'entraîne que le modèle tactile
+            context, z_a = context.detach(), z_a.detach()
+        tokens = self.tactile_fwd_decoder(context, self.tactile_encoder(tactile_t), z_a)   # (N, 12, D)
+        return self.tactile_decoder(tokens)
+
     def decode(self, features_t: torch.Tensor, video_t: torch.Tensor, tactile_t: torch.Tensor, z_qa: torch.Tensor, z_qi: torch.Tensor):
         """Both forward models: the DINOv3 patches of t+H, and the tactile decoder's outputs (pressure change, contact
         logits, bend change)."""
@@ -535,6 +483,47 @@ class TactileVDVAE(TactileTargetMixin, nn.Module):
 
         # the tactile forward model only gets z_a, not z_env
         return features_hat, self.predict_tactile(video_t, tactile_t, z_qa)
+
+    def tactile_losses(self, tactile_prediction, tactile_t: torch.Tensor, tactile_t_H: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """The tactile loss and its terms, with the errors of the prediction and of the copy of the gloves at t."""
+        delta_pressure, contact_logits, delta_bend = tactile_prediction
+        # gant droit en miroir sur la disposition du gauche, puis séparation pression (151) / flexion (15) par gant
+        cells_t, cells_t_H = canonical_cells(tactile_t), canonical_cells(tactile_t_H)
+        pressure_t, pressure_t_H = cells_t[..., ALL_PRESSURE_CELLS], cells_t_H[..., ALL_PRESSURE_CELLS]
+        bend_t, bend_t_H = cells_t[..., ALL_BEND_CELLS], cells_t_H[..., ALL_BEND_CELLS]
+        contact_t, contact_t_H = pressure_t > CONTACT_THRESHOLD, pressure_t_H > CONTACT_THRESHOLD
+        # le modèle prédit des changements : valeur à t+H = valeur à t + changement
+        pressure_hat, bend_hat = pressure_t + delta_pressure, bend_t + delta_bend
+
+        # the maps are sparse: without these weights, predicting no contact at all is already a good score
+        cell_weights = 1.0 + self.contact_cells_weight * (contact_t | contact_t_H).to(pressure_t.dtype)
+        loss_pressure = (cell_weights * (pressure_hat - pressure_t_H) ** 2).sum() / cell_weights.sum()
+        loss_contact = F.binary_cross_entropy_with_logits(contact_logits, contact_t_H.to(contact_logits.dtype),
+                                                          pos_weight=self.contact_pos_weight.to(contact_logits.dtype))
+        loss_bend = F.mse_loss(bend_hat, bend_t_H)
+
+        return {
+            "loss_tactile": self.pressure_weight * loss_pressure + self.contact_weight * loss_contact + self.bend_weight * loss_bend,
+            "loss_pressure": loss_pressure.detach(),
+            "loss_contact": loss_contact.detach(),
+            "loss_bend": loss_bend.detach(),
+            # baselines "nothing changes" for each error
+            "pressure_mae": (pressure_hat - pressure_t_H).abs().mean().detach(),
+            "pressure_mae_copy": (pressure_t - pressure_t_H).abs().mean(),
+            "bend_mae": (bend_hat - bend_t_H).abs().mean().detach(),
+            "bend_mae_copy": (bend_t - bend_t_H).abs().mean(),
+            "contact_f1": f1_score(contact_logits > 0, contact_t_H),
+            "contact_f1_copy": f1_score(contact_t, contact_t_H),
+        }
+
+    @staticmethod
+    def predicted_maps(tactile_prediction, tactile_t: torch.Tensor) -> torch.Tensor:
+        """The predicted gloves at t+H as (N, 2, 21, 21) maps, as the dataset draws them."""
+        delta_pressure, _, delta_bend = tactile_prediction
+        cells_t = canonical_cells(tactile_t)
+        pressure = (cells_t[..., ALL_PRESSURE_CELLS] + delta_pressure).clamp(0, 1)
+        bend = (cells_t[..., ALL_BEND_CELLS] + delta_bend).clamp(0, 1)
+        return cells_to_maps(pressure, bend)
 
     @torch.no_grad()
     def visualize(self, frames: torch.Tensor, tactile: torch.Tensor) -> Dict[str, torch.Tensor]:
@@ -562,12 +551,13 @@ class TactileVDVAE(TactileTargetMixin, nn.Module):
         """frames (B, T+1, 3, H, W), tactile (B, T+1, 2, 21, 21), rel_t (B, T). Every pair of consecutive frames is a
         transition, except the ones repeating a frame to pad a short episode. shuffle_latent gives both forward models
         the latents of other transitions: how much worse they get measures how much they rely on the latents."""
-        features = self.extract_features(frames)
+        features = self.extract_features(frames)                                          # (B, T+1, P, F)
+        # transitions gardées : pas celles qui répètent une frame (rel_t = 0, épisode trop court)
         keep = (rel_t > 0).flatten() if rel_t is not None else torch.ones_like(tactile[:, 1:, 0, 0, 0], dtype=torch.bool).flatten()
-        features_t, features_t_H = features[:, :-1].flatten(0, 1)[keep], features[:, 1:].flatten(0, 1)[keep]
-        tactile_t, tactile_t_H = tactile[:, :-1].flatten(0, 1)[keep], tactile[:, 1:].flatten(0, 1)[keep]
+        features_t, features_t_H = features[:, :-1].flatten(0, 1)[keep], features[:, 1:].flatten(0, 1)[keep]   # (N, P, F)
+        tactile_t, tactile_t_H = tactile[:, :-1].flatten(0, 1)[keep], tactile[:, 1:].flatten(0, 1)[keep]       # (N, 2, 21, 21)
 
-        video_t, video_t_H = self.feature_proj(features_t), self.feature_proj(features_t_H)
+        video_t, video_t_H = self.feature_proj(features_t), self.feature_proj(features_t_H)                   # (N, P, D)
         z_va, z_vi, z_qa, z_qi, act_indices, env_indices, loss_vq_act, loss_vq_env = self.encode(video_t, video_t_H)
         if shuffle_latent:
             permutation = torch.randperm(z_qa.shape[0], device=z_qa.device)
@@ -785,8 +775,18 @@ class ActVAE(nn.Module):
         return actions_recon
 
 
-
 class LAM(nn.Module):
+    """Latent Action Model (LAPA / Genie) : apprend sans labels une action discrète par transition de frames.
+
+    Principe : l'encodeur (STTransformer avec readout) voit toute la vidéo et résume chaque transition t -> t+1 en un
+    vecteur ; le quantificateur (VQ) le remplace par le code le plus proche d'un petit codebook (8 codes) ; le décodeur
+    doit reconstruire la frame t+1 à partir de la frame t et de ce seul code. Comme le code ne porte que ~3 bits, il est
+    poussé à encoder ce qui change (le mouvement) plutôt que l'apparence, que le décodeur a déjà via la frame t.
+
+    Exemple utilisé dans les commentaires (train_tactile_lam) : B=2 clips, T=5 frames 128x160, extracteur Identity
+    (patchs de 16 -> P=80 tokens de F=512), encodeur STTransformer causal, décodeur Transformer spatial.
+    """
+
     def __init__(self,
                  encoder,
                  decoder,
@@ -797,17 +797,20 @@ class LAM(nn.Module):
                  register_dropout_mean=0.0,
                  register_dropout_std=0.0):
         super().__init__()
-        self.encoder = encoder
-        self.decoder = decoder
-        self.vq = vq
-        self.feature_extractor = feature_extractor
-        self.perceptual_regularizer = perceptual_regularizer
+        self.encoder = encoder                                  # STTransformer(add_readout_token=True) : vidéo -> actions continues
+        self.decoder = decoder                                  # Transformer ou STTransformer : (frame t, action) -> frame t+1
+        self.vq = vq                                            # quantificateur (VQ, NSVQ, FSQ...) : action continue -> code
+        self.feature_extractor = feature_extractor              # images -> tokens (gelé), et tokens -> images + loss
+        self.perceptual_regularizer = perceptual_regularizer    # optionnel : réseau gelé pour une loss perceptuelle
 
+        # Registres : tokens appris ajoutés à chaque frame, qui peuvent transporter de l'information de l'encodeur au
+        # décodeur en plus de l'action ; chaque registre est masqué avec une probabilité p ~ N(mean, std) par clip
         self.num_register_tokens = num_register_tokens
         self.register_dropout_mean = register_dropout_mean
         self.register_dropout_std = register_dropout_std
 
         if num_register_tokens:
+            # (1, R, D), avec D lu sur la table des positions de l'encodeur ; initialisés presque à zéro
             self.register_tokens = nn.Parameter(torch.zeros(1, num_register_tokens, encoder.spatial_pos_embedding.weight.shape[1]))
             nn.init.normal_(self.register_tokens, std=1e-6)
 
@@ -816,36 +819,67 @@ class LAM(nn.Module):
         '''
         arguments:
         x: torch.Tensor, shape (batch_size, seq_len, channels, height, width)
+        returns: dict des losses (recon, perceptual, commit), des codes (indices) et actions quantifiées, des tokens
+                 d'entrée et reconstruits, et de la vidéo reconstruite (frames 1..T-1)
         '''
+        # 1. Images -> tokens. Pas de gradient : l'extracteur n'est pas entraîné (avec Identity, sa projection
+        #    768 -> 512 reste donc aléatoire ; seul son to_image, utilisé dans compute_loss, est appris)
         with torch.no_grad():
             features = self.feature_extractor(x)                                            # Extract image features or simply patchfy and project if working in image space
+                                                                                            # (2, 5, 3, 128, 160) -> (2, 5, 80, 512)
 
-        B, T, P, F = features.shape
+        B, T, P, F = features.shape                                                         # B=2, T=5, P=80, F=512
+        # 2. Masque d'attention spatiale, True = token ignoré. Pour les patchs, tout est False : rien n'est masqué.
         attention_mask = torch.zeros((B, P), dtype=torch.bool, device=x.device)         # Attention mask for the patches (False means keep, True means mask)
+                                                                                            # (2, 80)
 
         if hasattr(self, 'register_tokens'):
-            p = torch.clamp(torch.normal(self.register_dropout_mean, self.register_dropout_std, size=(B,), device=x.device), 0.0, 1.0).unsqueeze(1)
-            register_attention_mask = (torch.rand((B, self.num_register_tokens), device=x.device) < p)
+            # Taux de masquage tiré par clip : p ~ N(mean, std), borné à [0, 1]
+            p = torch.clamp(torch.normal(self.register_dropout_mean, self.register_dropout_std, size=(B,), device=x.device), 0.0, 1.0).unsqueeze(1)   # (B, 1)
+            # Chaque registre est masqué avec la probabilité p de son clip
+            register_attention_mask = (torch.rand((B, self.num_register_tokens), device=x.device) < p)              # (B, R)
 
-            attention_mask = torch.cat([register_attention_mask, attention_mask], dim=-1)
-            register_tokens = repeat(self.register_tokens, '1 n d -> b t n d', b=B, t=T)
+            # Les registres sont placés avant les patchs : leur masque aussi
+            attention_mask = torch.cat([register_attention_mask, attention_mask], dim=-1)                          # (B, R + 80)
+            # Les mêmes registres appris pour chaque clip et chaque frame
+            register_tokens = repeat(self.register_tokens, '1 n d -> b t n d', b=B, t=T)                            # (B, T, R, 512)
         else:
             register_tokens, register_readouts = None, None
 
-        attention_mask = repeat(attention_mask, 'b p -> b t p', b=B, t=T)
+        # Le même masque pour toutes les frames
+        attention_mask = repeat(attention_mask, 'b p -> b t p', b=B, t=T)                  # (2, 5, 80)
 
-        logits, readout = self.encode(features, registers=register_tokens, attention_mask=attention_mask)
+        # 3. Encodeur : logits = tous les tokens de sortie, readout = le token readout de chaque frame
+        logits, readout = self.encode(features, registers=register_tokens, attention_mask=attention_mask)   # (2, 5, 81, 512), (2, 5, 512)
+        # Avec l'attention causale, le readout de la frame t a vu les frames 0..t : il décrit la transition t-1 -> t.
+        # Celui de la frame 0 n'a vu qu'une image, il ne décrit aucune transition : on le retire. Il reste T-1 = 4 actions.
         readout = readout[:, 1:, :]                                                                                                             # Ignore the first action token, it doesn't represent any transition
+                                                                                                                                                # (2, 4, 512)
+        # 4. Quantification : chaque action continue est remplacée par le code le plus proche du codebook.
+        #    action_tokens (2, 4, 512) : les codes, avec gradient straight-through vers l'encodeur ; indices (2, 4) : leurs
+        #    numéros (0..7) ; commit_loss : rapproche les sorties de l'encodeur de leurs codes
         action_tokens, indices, commit_loss = self.vq.quantize(readout)
 
         if register_tokens is not None:
+            # Les registres de sortie de l'encodeur (frames 1..T-1) sont passés au décodeur, comme les actions
             register_readouts = logits[:, 1:, :self.num_register_tokens, :]                                                                     # Ignore the first register token, it doesn't represent any transition
+                                                                                                                                                # (B, 4, R, 512)
 
+        # 5. Décodeur : à partir des tokens des frames 0..T-2 et de l'action de chaque transition, prédire les tokens
+        #    des frames 1..T-1. features[:, :-1] : la dernière frame n'a pas de suivante, elle ne sert que de cible.
+        #    Les actions[:, i] (transition i -> i+1) sont ajoutées aux patchs de la frame i.
         logits = self.decode(features[:, :-1], actions=action_tokens, registers=register_readouts, attention_mask=attention_mask[:, :-1])       # Ignore the last frame, since there is no target for it
+                                                                                                                                                # (2, 4, R + 80, 512)
         logits = logits[:, :, self.num_register_tokens:, :]                                                                                     # Remove the register tokens from the decoder output
+                                                                                                                                                # (2, 4, 80, 512)
+        # 6. Loss de reconstruction contre les frames 1..T-1. Avec Identity : les tokens prédits sont remis en pixels
+        #    (to_image + sigmoid) et comparés aux images x[:, 1:] ; avec DINO : comparés aux features[:, 1:].
+        #    recon_video (2, 4, 3, 128, 160) : les images prédites
         recon_loss, recon_video = self.feature_extractor.compute_loss(logits, x[:, 1:], features[:, 1:])                                        # The first frame of x is not used as a target
-        
+
         if self.perceptual_regularizer is not None:
+            # 7. Loss perceptuelle (optionnelle) : distance entre les features d'un réseau gelé sur les vraies images et
+            #    sur les images reconstruites. Le gradient passe par recon_video, pas par la cible.
             with torch.no_grad():
                 ground_truth_features = self.perceptual_regularizer(x[:, 1:])
             reconstruction_features = self.perceptual_regularizer(recon_video)
@@ -853,22 +887,28 @@ class LAM(nn.Module):
         else:
             perceptual_loss = 0.0
 
+        # La loss totale (recon + poids * commit + poids * perceptual) est assemblée dans le module Lightning
         return dict(recon_loss=recon_loss, perceptual_loss=perceptual_loss, commit_loss=commit_loss, indices=indices, action_tokens=action_tokens, features=features, recon_features=logits, recon_video=recon_video)
 
     def encode(self, x, registers=None, attention_mask=None):
+        # tokens (B, T, P, D) -> (tous les tokens de sortie, readouts (B, T, D))
         return self.encoder(x, registers=registers, attention_mask=attention_mask)
 
 
     def decode(self, x, actions, registers=None, attention_mask=None):
+        # tokens des frames t (B, T-1, P, D) + actions (B, T-1, D) -> tokens prédits des frames t+1
         return self.decoder(x, actions, registers=registers, attention_mask=attention_mask)
-    
+
     def get_latent_actions(self, x):
         '''
+        Inférence : les actions latentes d'une vidéo, sans décodeur ni loss.
         arguments:
         x: torch.Tensor, shape (batch_size, seq_len, channels, height, width)
+        returns: action_tokens (batch_size, seq_len - 1, D) les codes, indices (batch_size, seq_len - 1) leurs numéros
         '''
         features = self.feature_extractor(x)                                            # Extract image features or simply patchfy and project if working in image space
 
+        # Sans registres ni masque ; on ne garde que les readouts
         logits, readout = self.encode(features)
         readout = readout[:, 1:, :]                                                 # Ignore the first action token, it doesn't represent any transition
         action_tokens, indices, commit_loss = self.vq.quantize(readout)
@@ -876,14 +916,20 @@ class LAM(nn.Module):
         return action_tokens, indices
 
 
-class TactileLAM(TactileTargetMixin, LAM):
+class TactileLAM(nn.Module):
     """LAM (LAPA) whose action tokens are also pushed towards the fine movements of the hands by touch.
 
-    LAM is unchanged: the spatio-temporal encoder reads the clip and outputs one action token per transition, the decoder
-    predicts the frame t+1 from the frame t and its action token. Added: the tactile forward model (TactileTargetMixin)
-    predicts the gloves at t+1 from the features of the frame t, the gloves at t and the action token. LAM has a single
-    latent, so the action tokens carry everything touch requires. Touch is only a training target: get_latent_actions
-    still reads the video only.
+    The video part is LAM's: the spatio-temporal encoder reads the clip and outputs one action token per transition, the
+    decoder predicts the frame t+1 from the frame t and its action token. Added: a tactile forward model predicts the
+    gloves at t+1 from the features of the frame t, the gloves at t and the action token. LAM has a single latent, so
+    the action tokens carry everything touch requires. Touch is only a training target: get_latent_actions still reads
+    the video only.
+
+    tactile_target=False is the baseline: the tactile forward model is still trained, but on detached action tokens,
+    so that its errors measure how much they know about the fingers without being pushed to.
+
+    Exemple utilisé dans les commentaires (train_tactile_lam) : B=2 clips, T=5 frames 128x160, extracteur Identity
+    (patchs de 16 -> P=80 tokens de D=512), donc N = B*(T-1) = 8 transitions.
     """
 
     def __init__(self,
@@ -904,30 +950,177 @@ class TactileLAM(TactileTargetMixin, LAM):
                  num_register_tokens=0,
                  register_dropout_mean=0.0,
                  register_dropout_std=0.0):
-        super().__init__(encoder=encoder, decoder=decoder, vq=vq, feature_extractor=feature_extractor,
-                         perceptual_regularizer=perceptual_regularizer, num_register_tokens=num_register_tokens,
-                         register_dropout_mean=register_dropout_mean, register_dropout_std=register_dropout_std)
-        self.init_tactile_target(model_dim=model_dim, act_latent_dim=model_dim, nhead=nhead,
-                                 tactile_dec_layers=tactile_dec_layers, pressure_weight=pressure_weight,
-                                 contact_weight=contact_weight, bend_weight=bend_weight,
-                                 contact_cells_weight=contact_cells_weight, contact_pos_weight=contact_pos_weight,
-                                 tactile_target=tactile_target)
+        super().__init__()
+        # ---------- vidéo (LAM) ----------
+        self.encoder = encoder                                  # STTransformer(add_readout_token=True) : vidéo -> actions continues
+        self.decoder = decoder                                  # Transformer ou STTransformer : (frame t, action) -> frame t+1
+        self.vq = vq                                            # quantificateur (VQ, NSVQ, FSQ...) : action continue -> code
+        self.feature_extractor = feature_extractor              # images -> tokens (gelé), et tokens -> images + loss
+        self.perceptual_regularizer = perceptual_regularizer    # optionnel : réseau gelé pour une loss perceptuelle
+
+        # Registres : tokens appris ajoutés à chaque frame, qui peuvent transporter de l'information de l'encodeur au
+        # décodeur en plus de l'action ; chaque registre est masqué avec une probabilité p ~ N(mean, std) par clip
+        self.num_register_tokens = num_register_tokens
+        self.register_dropout_mean = register_dropout_mean
+        self.register_dropout_std = register_dropout_std
+
+        if num_register_tokens:
+            # (1, R, D), avec D lu sur la table des positions de l'encodeur ; initialisés presque à zéro
+            self.register_tokens = nn.Parameter(torch.zeros(1, num_register_tokens, encoder.spatial_pos_embedding.weight.shape[1]))
+            nn.init.normal_(self.register_tokens, std=1e-6)
+
+        # ---------- toucher ----------
+        self.tactile_target = tactile_target                                    # False : baseline, actions lues détachées
+        self.pressure_weight = pressure_weight
+        self.contact_weight = contact_weight
+        self.bend_weight = bend_weight
+        self.contact_cells_weight = contact_cells_weight                        # poids en plus des cases en contact
+        self.register_buffer('contact_pos_weight', torch.tensor(contact_pos_weight), persistent=False)   # BCE des contacts
+
+        # gants à t -> 12 tokens (2 gants x 6 régions)
+        self.tactile_encoder = TactileEncoder(model_dim)
+        # (patchs t, tokens des gants à t, action) -> tokens des gants à t+1 ; l'action est un token de LAM (dim D)
+        self.tactile_fwd_decoder = TactileForwardDecoder(model_dim=model_dim, n_layers=tactile_dec_layers, n_heads=nhead,
+                                                         act_latent_dim=model_dim, dropout=0.1)
+        # tokens -> changement de pression, logits de contact, changement de flexion
+        self.tactile_decoder = TactileDecoder(model_dim)
+
+    def encode(self, x, registers=None, attention_mask=None):
+        # tokens (B, T, P, D) -> (tous les tokens de sortie, readouts (B, T, D))
+        return self.encoder(x, registers=registers, attention_mask=attention_mask)
+
+    def decode(self, x, actions, registers=None, attention_mask=None):
+        # tokens des frames t (B, T-1, P, D) + actions (B, T-1, D) -> tokens prédits des frames t+1
+        return self.decoder(x, actions, registers=registers, attention_mask=attention_mask)
+
+    def predict_tactile(self, context: torch.Tensor, tactile_t: torch.Tensor, z_a: torch.Tensor):
+        """(N, P, D) patches of the frames t, (N, 2, 21, 21) gloves at t, (N, D) action tokens -> the tactile decoder's
+        outputs (pressure change, contact logits, bend change)."""
+        if not self.tactile_target:
+            # baseline : la loss tactile ne remonte pas dans les actions, elle n'entraîne que le modèle tactile
+            context, z_a = context.detach(), z_a.detach()
+        tokens = self.tactile_fwd_decoder(context, self.tactile_encoder(tactile_t), z_a)   # (N, 12, D)
+        return self.tactile_decoder(tokens)
+
+    def tactile_losses(self, tactile_prediction, tactile_t: torch.Tensor, tactile_t_H: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """The tactile loss and its terms, with the errors of the prediction and of the copy of the gloves at t."""
+        delta_pressure, contact_logits, delta_bend = tactile_prediction
+        # gant droit en miroir sur la disposition du gauche, puis séparation pression (151) / flexion (15) par gant
+        cells_t, cells_t_H = canonical_cells(tactile_t), canonical_cells(tactile_t_H)
+        pressure_t, pressure_t_H = cells_t[..., ALL_PRESSURE_CELLS], cells_t_H[..., ALL_PRESSURE_CELLS]
+        bend_t, bend_t_H = cells_t[..., ALL_BEND_CELLS], cells_t_H[..., ALL_BEND_CELLS]
+        contact_t, contact_t_H = pressure_t > CONTACT_THRESHOLD, pressure_t_H > CONTACT_THRESHOLD
+        # le modèle prédit des changements : valeur à t+1 = valeur à t + changement
+        pressure_hat, bend_hat = pressure_t + delta_pressure, bend_t + delta_bend
+
+        # the maps are sparse: without these weights, predicting no contact at all is already a good score
+        cell_weights = 1.0 + self.contact_cells_weight * (contact_t | contact_t_H).to(pressure_t.dtype)
+        loss_pressure = (cell_weights * (pressure_hat - pressure_t_H) ** 2).sum() / cell_weights.sum()
+        loss_contact = F.binary_cross_entropy_with_logits(contact_logits, contact_t_H.to(contact_logits.dtype),
+                                                          pos_weight=self.contact_pos_weight.to(contact_logits.dtype))
+        loss_bend = F.mse_loss(bend_hat, bend_t_H)
+
+        return {
+            "loss_tactile": self.pressure_weight * loss_pressure + self.contact_weight * loss_contact + self.bend_weight * loss_bend,
+            "loss_pressure": loss_pressure.detach(),
+            "loss_contact": loss_contact.detach(),
+            "loss_bend": loss_bend.detach(),
+            # baselines "nothing changes" for each error
+            "pressure_mae": (pressure_hat - pressure_t_H).abs().mean().detach(),
+            "pressure_mae_copy": (pressure_t - pressure_t_H).abs().mean(),
+            "bend_mae": (bend_hat - bend_t_H).abs().mean().detach(),
+            "bend_mae_copy": (bend_t - bend_t_H).abs().mean(),
+            "contact_f1": f1_score(contact_logits > 0, contact_t_H),
+            "contact_f1_copy": f1_score(contact_t, contact_t_H),
+        }
+
+    @staticmethod
+    def predicted_maps(tactile_prediction, tactile_t: torch.Tensor) -> torch.Tensor:
+        """The predicted gloves at t+1 as (N, 2, 21, 21) maps, as the dataset draws them."""
+        delta_pressure, _, delta_bend = tactile_prediction
+        cells_t = canonical_cells(tactile_t)
+        pressure = (cells_t[..., ALL_PRESSURE_CELLS] + delta_pressure).clamp(0, 1)
+        bend = (cells_t[..., ALL_BEND_CELLS] + delta_bend).clamp(0, 1)
+        return cells_to_maps(pressure, bend)
 
     def forward(self, x, tactile):
         """
         arguments:
         x: torch.Tensor, shape (batch_size, seq_len, channels, height, width)
         tactile: torch.Tensor, shape (batch_size, seq_len, 2, 21, 21), the gloves of every frame
-        returns: LAM's outputs, the tactile losses and metrics, and tactile_prediction (the tactile decoder's outputs for
-        every transition, flattened over batch and time)
+        returns: the video losses (recon, perceptual, commit), the codes, the tactile losses and metrics, and
+        tactile_prediction (the tactile decoder's outputs for every transition, flattened over batch and time)
         """
-        output = super().forward(x)
-        tactile_t, tactile_t_H = tactile[:, :-1].flatten(0, 1), tactile[:, 1:].flatten(0, 1)
-        context = output["features"][:, :-1].flatten(0, 1)
-        tactile_prediction = self.predict_tactile(context, tactile_t, output["action_tokens"].flatten(0, 1).to(context.dtype))
+        # 1. Images -> tokens, sans gradient : l'extracteur n'est pas entraîné
+        with torch.no_grad():
+            features = self.feature_extractor(x)                                            # (2, 5, 80, 512)
+
+        B, T, P, F = features.shape
+        # 2. Masque d'attention spatiale, True = token ignoré ; rien n'est masqué pour les patchs
+        attention_mask = torch.zeros((B, P), dtype=torch.bool, device=x.device)            # (2, 80)
+
+        if hasattr(self, 'register_tokens'):
+            # taux de masquage tiré par clip, puis chaque registre masqué avec cette probabilité
+            p = torch.clamp(torch.normal(self.register_dropout_mean, self.register_dropout_std, size=(B,), device=x.device), 0.0, 1.0).unsqueeze(1)
+            register_attention_mask = (torch.rand((B, self.num_register_tokens), device=x.device) < p)              # (B, R)
+
+            attention_mask = torch.cat([register_attention_mask, attention_mask], dim=-1)                          # (B, R + 80)
+            register_tokens = repeat(self.register_tokens, '1 n d -> b t n d', b=B, t=T)                            # (B, T, R, D)
+        else:
+            register_tokens, register_readouts = None, None
+
+        attention_mask = repeat(attention_mask, 'b p -> b t p', b=B, t=T)                  # (2, 5, 80)
+
+        # 3. Encodeur spatio-temporel causal : le readout de la frame t résume la transition t-1 -> t
+        logits, readout = self.encode(features, registers=register_tokens, attention_mask=attention_mask)   # (2, 5, 81, 512), (2, 5, 512)
+        readout = readout[:, 1:, :]                                                        # la frame 0 ne décrit aucune transition -> (2, 4, 512)
+        # 4. Quantification : chaque action devient l'un des codes du codebook (straight-through vers l'encodeur)
+        action_tokens, indices, commit_loss = self.vq.quantize(readout)                     # (2, 4, 512), (2, 4), scalaire
+
+        if register_tokens is not None:
+            register_readouts = logits[:, 1:, :self.num_register_tokens, :]               # (B, 4, R, D)
+
+        # 5. Décodeur vidéo : frames 0..T-2 + actions -> frames 1..T-1
+        recon_features = self.decode(features[:, :-1], actions=action_tokens, registers=register_readouts, attention_mask=attention_mask[:, :-1])
+        recon_features = recon_features[:, :, self.num_register_tokens:, :]                # (2, 4, 80, 512), sans les registres
+        # 6. Loss de reconstruction contre les frames 1..T-1 (en pixels avec Identity, en features avec DINO)
+        recon_loss, recon_video = self.feature_extractor.compute_loss(recon_features, x[:, 1:], features[:, 1:])
+
+        if self.perceptual_regularizer is not None:
+            # 7. Loss perceptuelle (optionnelle) : features d'un réseau gelé, vraies images vs reconstruites
+            with torch.no_grad():
+                ground_truth_features = self.perceptual_regularizer(x[:, 1:])
+            reconstruction_features = self.perceptual_regularizer(recon_video)
+            perceptual_loss, _ = self.perceptual_regularizer.compute_loss(ground_truth_features, None, reconstruction_features)
+        else:
+            perceptual_loss = 0.0
+
+        # 8. Modèle tactile : (frame t, gants à t, action t -> t+1) -> gants à t+1, pour chaque transition (N = B*(T-1))
+        tactile_t, tactile_t_H = tactile[:, :-1].flatten(0, 1), tactile[:, 1:].flatten(0, 1)   # (8, 2, 21, 21), cible
+        context = features[:, :-1].flatten(0, 1)                                                 # (8, 80, 512) : features brutes de t
+        tactile_prediction = self.predict_tactile(context, tactile_t, action_tokens.flatten(0, 1).to(context.dtype))
+
+        # La loss totale (recon + commit + perceptual + tactile, avec leurs poids) est assemblée dans le module Lightning
+        output = dict(recon_loss=recon_loss, perceptual_loss=perceptual_loss, commit_loss=commit_loss, indices=indices,
+                      action_tokens=action_tokens, features=features, recon_features=recon_features, recon_video=recon_video)
         output.update(self.tactile_losses(tactile_prediction, tactile_t, tactile_t_H))
         output["tactile_prediction"] = tactile_prediction
         return output
+
+    def get_latent_actions(self, x):
+        '''
+        Inférence, à partir de la vidéo seule : les actions latentes, sans décodeur ni toucher.
+        arguments:
+        x: torch.Tensor, shape (batch_size, seq_len, channels, height, width)
+        returns: action_tokens (batch_size, seq_len - 1, D), indices (batch_size, seq_len - 1)
+        '''
+        features = self.feature_extractor(x)
+
+        logits, readout = self.encode(features)
+        readout = readout[:, 1:, :]                                                 # Ignore the first action token, it doesn't represent any transition
+        action_tokens, indices, commit_loss = self.vq.quantize(readout)
+
+        return action_tokens, indices
 
     @torch.no_grad()
     def tactile_with_random_actions(self, features, tactile):

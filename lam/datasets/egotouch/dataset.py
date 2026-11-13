@@ -5,6 +5,9 @@ An episode is `<root>/<scene>/<task>/<YYYYMMDD_HHMMSS_mmm>/`, every stream on on
     chest.mp4, left.mp4, right.mp4   head/chest camera and two wrist cameras (4:3, 320x240 or 640x480)
     pressure_grids.npz               one 21x21 map per glove and per frame, in [0, 1], baseline-corrected, NaN off the
                                      glove. 217 cells are on the glove, 151 taxels and 15 bend sensors drawn as strips.
+
+tactile_repr='mano_uv' (or 'mano_vertex') places the taxels on the MANO hand, the representation shared with ARCTIC
+(lam/hand_contact.py): the bend sensors, which do not measure contact, are left out.
 """
 
 import json
@@ -19,12 +22,16 @@ from decord import VideoReader, cpu
 from torch.utils.data import Dataset
 from torchvision import tv_tensors
 
+from lam.hand_contact import ManoUV, egotouch_vertex_weights, load_mano_assets
+from lam.tactile import ALL_PRESSURE_CELLS, canonical_cells
+
 CAMERAS = ('chest', 'left', 'right')
 GLOVES = ('left', 'right')
 SPLITS = ('train', 'val', 'test_seen', 'test_unseen')
 SPLIT_FILE = 'split.json'
 TACTILE_FILE = 'pressure_grids.npz'
 NUM_SEGMENTS = 10  # each episode is divided into intervals so as not to load the same part of it every time
+TACTILE_REPRS = ('grid', 'mano_vertex', 'mano_uv')
 
 
 class EgoTouchDataset(Dataset):
@@ -37,12 +44,19 @@ class EgoTouchDataset(Dataset):
 
     normalize=False keeps the frames in [0, 1] instead of normalizing them for the backbone.
 
+    tactile_repr (one of TACTILE_REPRS) 'mano_vertex' or 'mano_uv' replaces the maps with the pressure of the taxels on
+    the MANO hands, as ArcticDataset's contacts (contact: pressure > lam.tactile.CONTACT_THRESHOLD), using the assets
+    at mano_uv_path:
+        tactile       FloatTensor (T, 2, 778) on the vertices, or (T, 2, H_uv, W_uv) on the UV map
+        tactile_mask  BoolTensor (2, 778) or (2, H_uv, W_uv), True under the taxels
+
     `split` is one of SPLITS, by default 'train' if train else 'val'. Only the split's episodes that are fully
     downloaded under root_folder are used. `train` also selects random sampling within each interval of an episode.
     """
 
     def __init__(self, root_folder, max_context_len=90, num_context=4, patch_size=14, img_size=224, aug=None,
-                 backbone_name='dinov3', train=False, evaluate=False, cameras=CAMERAS, split=None, normalize=True):
+                 backbone_name='dinov3', train=False, evaluate=False, cameras=CAMERAS, split=None, normalize=True,
+                 tactile_repr='grid', mano_uv_path=None):
         super(EgoTouchDataset, self).__init__()
         assert not (aug and not train), "aug is only meant for the training set"
         assert max_context_len >= num_context, "max_context_len must be at least num_context"
@@ -50,6 +64,8 @@ class EgoTouchDataset(Dataset):
         assert not unknown, f"unknown cameras {unknown}, expected some of {CAMERAS}"
         split = split or ('train' if train else 'val')
         assert split in SPLITS, f"unknown split {split!r}, expected one of {SPLITS}"
+        assert tactile_repr in TACTILE_REPRS, f"unknown tactile_repr {tactile_repr!r}, expected one of {TACTILE_REPRS}"
+        assert tactile_repr == 'grid' or mano_uv_path, f"tactile_repr={tactile_repr!r} needs mano_uv_path"
 
         self.max_context_len = max_context_len
         self.num_context = num_context
@@ -69,6 +85,12 @@ class EgoTouchDataset(Dataset):
         # the last window of each episode when evaluating, else one interval per item
         self.segments = [1.0] if evaluate else [(i + 1) / NUM_SEGMENTS for i in range(NUM_SEGMENTS)]
         self.transform = self.build_transform(aug)
+
+        self.tactile_repr = tactile_repr
+        if tactile_repr != 'grid':
+            assets = load_mano_assets(mano_uv_path)
+            self.vertex_weights = torch.from_numpy(egotouch_vertex_weights(assets))  # (778, 151)
+            self.uv = ManoUV(assets) if tactile_repr == 'mano_uv' else None
 
     def list_episodes(self, root_folder):
         """Complete episodes of the split, sorted by scene, task and recording time."""
@@ -122,6 +144,17 @@ class EgoTouchDataset(Dataset):
         video = tv_tensors.Video(video.float() / 255.)
         return self.transform(video).as_subclass(torch.Tensor)
 
+    def to_mano(self, tactile, tactile_mask):
+        """(T, 2, 21, 21) maps and (2, 21, 21) mask -> the taxels on the MANO vertices or UV map, and where they are."""
+        taxels = canonical_cells(tactile)[..., ALL_PRESSURE_CELLS]  # (T, 2, 151), both gloves on the left one's layout
+        observed = canonical_cells(tactile_mask.float())[..., ALL_PRESSURE_CELLS]  # (2, 151)
+        tactile = taxels @ self.vertex_weights.T  # (T, 2, 778)
+        # a vertex is observed when the taxels it is made of are all on the glove
+        mask = ((1 - observed) @ self.vertex_weights.T < 1e-6) & (self.vertex_weights.sum(1) > 0)
+        if self.uv is not None:
+            tactile, mask = self.uv(tactile), self.uv.coverage(mask)
+        return tactile, mask
+
     def __getitem__(self, idx):
         episode = self.episodes[idx // len(self.segments)]
         segment = self.segments[idx % len(self.segments)]
@@ -137,6 +170,8 @@ class EgoTouchDataset(Dataset):
         videos = {camera: self.process_video(reader, indices) for camera, reader in readers.items()}
         tactile_mask = torch.from_numpy(np.isfinite(grid[indices[0]]))
         tactile = torch.from_numpy(np.nan_to_num(grid[indices], nan=0.0)).float()
+        if self.tactile_repr != 'grid':
+            tactile, tactile_mask = self.to_mano(tactile, tactile_mask)
         rel_t = indices[1:] - indices[:-1]
         metadata = {'episode': str(episode), 'indices': torch.from_numpy(indices).long()}
 
