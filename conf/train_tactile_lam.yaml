@@ -31,7 +31,7 @@ lightning_module:
   codebook_replace_freq: 0.05
   metrics: ${metrics}
   compute_metrics_every_n_steps: ${trainer.log_every_n_steps}
-  commit_loss_weight: 10.0
+  commit_loss_weight: 1.0
   perceptual_loss_weight: 0.01
 
 trainer:
@@ -44,7 +44,7 @@ trainer:
   precision: bf16-mixed
   logger:
     _target_: lightning.pytorch.loggers.WandbLogger
-    name: tactile_lam_egotouch_window_size_40
+    name: tactile_lam_egotouch_window_size_40_and_commitment_weight_1
     save_dir: ${trainer.default_root_dir}
     mode: offline
     project: Tactile-guided-Latent-Action
