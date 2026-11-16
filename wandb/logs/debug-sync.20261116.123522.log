@@ -1,0 +1,11 @@
+{"time":"2026-11-16T13:35:22.372262532+01:00","level":"INFO","msg":"runsync: getting info","sync_path":"runs/wandb/offline-run-20261116_053741-3dzmu13c/run-3dzmu13c.wandb"}
+{"time":"2026-11-16T13:35:22.409047277+01:00","level":"INFO","msg":"runsync: starting to read","sync_path":"runs/wandb/offline-run-20261116_053741-3dzmu13c/run-3dzmu13c.wandb"}
+{"time":"2026-11-16T13:35:22.410564194+01:00","level":"INFO","msg":"sender: started","sync_path":"runs/wandb/offline-run-20261116_053741-3dzmu13c/run-3dzmu13c.wandb"}
+{"time":"2026-11-16T13:35:23.260826351+01:00","level":"INFO","msg":"filestream: sending request","sync_path":"runs/wandb/offline-run-20261116_053741-3dzmu13c/run-3dzmu13c.wandb","total_files":1,"events_offset":0,"events_lines":2}
+{"time":"2026-11-16T13:35:23.861838559+01:00","level":"INFO","msg":"filestream: request sent","sync_path":"runs/wandb/offline-run-20261116_053741-3dzmu13c/run-3dzmu13c.wandb","status":"200 OK"}
+{"time":"2026-11-16T13:35:25.867409844+01:00","level":"WARN","msg":"runsync: no exit record encountered, using exit code 1 (failed)","sync_path":"runs/wandb/offline-run-20261116_053741-3dzmu13c/run-3dzmu13c.wandb"}
+{"time":"2026-11-16T13:35:35.988115566+01:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed","sync_path":"runs/wandb/offline-run-20261116_053741-3dzmu13c/run-3dzmu13c.wandb"}
+{"time":"2026-11-16T13:35:36.174362814+01:00","level":"INFO","msg":"filestream: sending request","sync_path":"runs/wandb/offline-run-20261116_053741-3dzmu13c/run-3dzmu13c.wandb","total_files":4,"history_offset":394,"history_lines":343,"events_offset":2,"events_lines":3801,"console_offset":0,"console_lines":7197,"uploaded_len":98,"complete":true,"exit_code":1}
+{"time":"2026-11-16T13:35:37.090012709+01:00","level":"INFO","msg":"filestream: request sent","sync_path":"runs/wandb/offline-run-20261116_053741-3dzmu13c/run-3dzmu13c.wandb","status":"200 OK"}
+{"time":"2026-11-16T13:35:37.098892211+01:00","level":"INFO","msg":"sender: closed","sync_path":"runs/wandb/offline-run-20261116_053741-3dzmu13c/run-3dzmu13c.wandb"}
+{"time":"2026-11-16T13:35:37.099424905+01:00","level":"ERROR","msg":"runsync: incomplete transaction log: transactionlog: error reading: unexpected EOF"}

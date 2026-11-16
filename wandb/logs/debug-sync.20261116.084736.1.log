@@ -1,0 +1,11 @@
+{"time":"2026-11-16T09:47:36.175588378+01:00","level":"INFO","msg":"runsync: getting info","sync_path":"runs/wandb/offline-run-20261116_053741-lksxhx3g/run-lksxhx3g.wandb"}
+{"time":"2026-11-16T09:47:36.196782717+01:00","level":"INFO","msg":"sender: started","sync_path":"runs/wandb/offline-run-20261116_053741-lksxhx3g/run-lksxhx3g.wandb"}
+{"time":"2026-11-16T09:47:36.196789367+01:00","level":"INFO","msg":"runsync: starting to read","sync_path":"runs/wandb/offline-run-20261116_053741-lksxhx3g/run-lksxhx3g.wandb"}
+{"time":"2026-11-16T09:47:38.296711651+01:00","level":"INFO","msg":"filestream: sending request","sync_path":"runs/wandb/offline-run-20261116_053741-lksxhx3g/run-lksxhx3g.wandb","total_files":1,"events_offset":0,"events_lines":1}
+{"time":"2026-11-16T09:47:38.711983619+01:00","level":"INFO","msg":"filestream: request sent","sync_path":"runs/wandb/offline-run-20261116_053741-lksxhx3g/run-lksxhx3g.wandb","status":"200 OK"}
+{"time":"2026-11-16T09:47:40.924661919+01:00","level":"WARN","msg":"runsync: no exit record encountered, using exit code 1 (failed)","sync_path":"runs/wandb/offline-run-20261116_053741-lksxhx3g/run-lksxhx3g.wandb"}
+{"time":"2026-11-16T09:47:44.807135344+01:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed","sync_path":"runs/wandb/offline-run-20261116_053741-lksxhx3g/run-lksxhx3g.wandb"}
+{"time":"2026-11-16T09:47:44.823382035+01:00","level":"INFO","msg":"filestream: sending request","sync_path":"runs/wandb/offline-run-20261116_053741-lksxhx3g/run-lksxhx3g.wandb","total_files":4,"history_offset":0,"history_lines":182,"events_offset":1,"events_lines":1977,"console_offset":0,"console_lines":3853,"uploaded_len":56,"complete":true,"exit_code":1}
+{"time":"2026-11-16T09:47:45.422905722+01:00","level":"INFO","msg":"filestream: request sent","sync_path":"runs/wandb/offline-run-20261116_053741-lksxhx3g/run-lksxhx3g.wandb","status":"200 OK"}
+{"time":"2026-11-16T09:47:45.442705372+01:00","level":"INFO","msg":"sender: closed","sync_path":"runs/wandb/offline-run-20261116_053741-lksxhx3g/run-lksxhx3g.wandb"}
+{"time":"2026-11-16T09:47:45.442751999+01:00","level":"ERROR","msg":"runsync: incomplete transaction log: transactionlog: error reading: unexpected EOF"}

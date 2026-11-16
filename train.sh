@@ -34,4 +34,4 @@ export WANDB_API_KEY=wandb_v1_Gw1PbDxxl3yJ8xsDLHv2eBQ6plh_O4BYF1j0AoohgH7eolLqOm
 
 export HYDRA_FULL_ERROR=1
 
-srun python train.py
+srun python train.py "$@"
