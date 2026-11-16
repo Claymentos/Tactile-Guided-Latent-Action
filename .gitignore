@@ -7,3 +7,7 @@ checkpoints/
 __pycache__
 dummy_scripts
 weights/
+outputs/
+runs/
+wandb/
+logs/*
