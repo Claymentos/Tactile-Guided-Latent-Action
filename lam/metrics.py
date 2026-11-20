@@ -311,6 +311,32 @@ def cycle_consistency(model, images_a, images_b):
                 code_agreement=agreement, indices_original=indices_a, indices_cycle=indices_cycle)
 
 
+def partner_indices(episodes):
+    """Pour chaque clip du batch, un autre clip d'un épisode différent (décalage circulaire), pour le test de cycle.
+    Sans épisodes (None), décalage d'une demi-batch."""
+    if episodes is None:
+        return None
+    B = len(episodes)
+    for shift in list(range(B // 2, B)) + list(range(1, B // 2)):
+        partner = [(i + shift) % B for i in range(B)]
+        if all(episodes[i] != episodes[j] for i, j in enumerate(partner)):
+            return torch.tensor(partner)
+    return torch.tensor([(i + B // 2) % B for i in range(B)])     # un seul épisode dans le batch : faute de mieux
+
+
+def _cycle_summary(error_original, error_cycle, error_random, code_agreement, code_frequencies=None):
+    """Indicateurs à partir des moyennes (flottants) ; code_frequencies : fréquence p_k de chaque code, ou None."""
+    psnr_of = lambda mse: float(10 * np.log10(1.0 / max(mse, 1e-12)))
+    gap, random_gap = error_cycle - error_original, error_random - error_original
+    summary = dict(erreur_origine=error_original, erreur_cycle=error_cycle, erreur_hasard=error_random,
+                   psnr_origine=psnr_of(error_original), psnr_cycle=psnr_of(error_cycle), psnr_hasard=psnr_of(error_random),
+                   hausse_erreur=gap, hausse_relative=gap / random_gap if random_gap > 0 else float('nan'),
+                   accord_des_codes=code_agreement)
+    if code_frequencies is not None:
+        summary['accord_des_codes_hasard'] = float((np.asarray(code_frequencies) ** 2).sum())
+    return summary
+
+
 def cycle_consistency_summary(error_original, error_cycle, error_random, code_agreement, indices_original=None, **_):
     """Agrège les sorties de cycle_consistency (concaténées sur l'évaluation, tableaux numpy).
 
@@ -320,13 +346,38 @@ def cycle_consistency_summary(error_original, error_cycle, error_random, code_ag
     - accord_des_codes, et l'accord attendu par hasard sum_k p_k^2 avec la fréquence p_k des codes
     """
     mean = lambda x: float(np.nanmean(x))
-    psnr_of = lambda mse: float(10 * np.log10(1.0 / max(mean(mse), 1e-12)))
-    gap, random_gap = mean(error_cycle) - mean(error_original), mean(error_random) - mean(error_original)
-    summary = dict(erreur_origine=mean(error_original), erreur_cycle=mean(error_cycle), erreur_hasard=mean(error_random),
-                   psnr_origine=psnr_of(error_original), psnr_cycle=psnr_of(error_cycle), psnr_hasard=psnr_of(error_random),
-                   hausse_erreur=gap, hausse_relative=gap / random_gap if random_gap > 0 else float('nan'),
-                   accord_des_codes=mean(code_agreement))
+    frequencies = None
     if indices_original is not None:
         _, counts = np.unique(indices_original, return_counts=True)
-        summary['accord_des_codes_hasard'] = float(((counts / counts.sum()) ** 2).sum())
-    return summary
+        frequencies = counts / counts.sum()
+    return _cycle_summary(mean(error_original), mean(error_cycle), mean(error_random), mean(code_agreement), frequencies)
+
+
+class CycleConsistencyAccumulator:
+    """Accumule cycle_consistency sur plusieurs batches sous forme de sommes (réductibles entre GPU par une simple
+    somme), puis donne le résumé de cycle_consistency_summary. Utilisé pendant la validation Lightning."""
+
+    def __init__(self, codebook_size=None):
+        self.codebook_size = codebook_size
+        self.stats = None      # [n clips, Σ err origine, Σ err cycle, Σ err hasard, Σ accord, n accord, comptes des codes...]
+
+    def update(self, output):
+        e_o, e_c, e_r, agree = (output[k].double() for k in ('error_original', 'error_cycle', 'error_random', 'code_agreement'))
+        valid = ~torch.isnan(agree)
+        stats = [torch.tensor(float(e_o.numel()), dtype=torch.float64, device=e_o.device), e_o.sum(), e_c.sum(), e_r.sum(),
+                 agree[valid].sum(), valid.sum().double()]
+        stats = torch.stack(stats)
+        indices = output.get('indices_original')
+        if self.codebook_size and indices is not None and indices.dim() == 2:
+            stats = torch.cat([stats, torch.bincount(indices.flatten().long(), minlength=self.codebook_size).double()])
+        self.stats = stats if self.stats is None else self.stats + stats
+
+    def summary(self, stats=None):
+        stats = self.stats if stats is None else stats
+        if stats is None or stats[0] == 0:
+            return {}
+        s = stats.double().cpu().numpy()
+        n = s[0]
+        agreement = s[4] / s[5] if s[5] > 0 else float('nan')
+        frequencies = s[6:] / s[6:].sum() if len(s) > 6 and s[6:].sum() > 0 else None
+        return _cycle_summary(s[1] / n, s[2] / n, s[3] / n, float(agreement), frequencies)

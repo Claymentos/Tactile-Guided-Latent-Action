@@ -9,7 +9,7 @@ from torchvision.utils import make_grid
 from torch.optim import AdamW, Optimizer
 from torch import Tensor
 
-from lam.metrics import _compute_metrics
+from lam.metrics import _compute_metrics, cycle_consistency, partner_indices, CycleConsistencyAccumulator
 import matplotlib
 import numpy as np
 import torch.nn.functional as F
@@ -267,9 +267,14 @@ class LAMTraining(L.LightningModule):
                  compute_metrics_every_n_steps: int = 100,
                  commit_loss_weight: float = 1.0,
                  perceptual_loss_weight: float = 1.0,
+                 cycle_consistency_batches: int = 8,
                 ):
+        """cycle_consistency_batches : nombre de batches de validation (les premiers) sur lesquels le test de
+        cycle-consistance A -> B -> A (lam.metrics.cycle_consistency) est calculé, loggé en val/cycle/* ; 0 le désactive."""
         super().__init__()
         self.save_hyperparameters(ignore=['model'])
+        self.cycle_consistency_batches = cycle_consistency_batches
+        self._cycle = None
 
         self.model = model
         self.learning_rate = learning_rate
@@ -280,6 +285,28 @@ class LAMTraining(L.LightningModule):
         self.compute_metrics_every_n_steps = compute_metrics_every_n_steps
         self.commit_loss_weight = commit_loss_weight
         self.perceptual_loss_weight = perceptual_loss_weight
+
+    def on_validation_epoch_start(self):
+        codebook_size = getattr(self.model.vq, 'codebook_size', None) if self.model.vq.get_codebook() is not None else None
+        self._cycle = CycleConsistencyAccumulator(codebook_size)
+
+    @torch.no_grad()
+    def accumulate_cycle_consistency(self, images, batch_idx, episodes=None):
+        """Test de cycle sur ce batch : chaque clip A est apparié à un clip B d'un autre épisode du batch."""
+        if self._cycle is None or batch_idx >= self.cycle_consistency_batches or images.shape[0] < 2:
+            return
+        partner = partner_indices(episodes)
+        if partner is None:
+            partner = torch.roll(torch.arange(images.shape[0]), images.shape[0] // 2)
+        self._cycle.update(cycle_consistency(self.model, images, images[partner.to(images.device)]))
+
+    def on_validation_epoch_end(self):
+        if self._cycle is None or self._cycle.stats is None:
+            return
+        stats = self.trainer.strategy.reduce(self._cycle.stats, reduce_op="sum")     # somme sur les GPU
+        for key, value in self._cycle.summary(stats).items():
+            self.log(f"val/cycle/{key}", float(value))
+        self._cycle = None
 
 
     def training_step(self, batch, batch_idx):
@@ -341,6 +368,7 @@ class LAMTraining(L.LightningModule):
                 self.log(f"val/{key}", output[key])
 
         random_reconstruction = self.compute_metrics(target_view, output["recon_video"], output["features"], output["recon_features"], output["indices"], output["action_tokens"], prefix="val", return_random_reconstruction=True)
+        self.accumulate_cycle_consistency(target_view, batch_idx)
 
         if batch_idx == 0:
             self.log_videos(target_view, output["recon_video"], random_reconstruction)
@@ -734,6 +762,10 @@ class TactileLAMTraining(LAMTraining):
 
     def validation_step(self, batch, batch_idx):
         images, tactile, tactile_mask, output, loss = self.shared_step(batch, "val")
+
+        metadata = batch[4] if len(batch) > 4 else None
+        episodes = metadata.get('episode') if isinstance(metadata, dict) else None
+        self.accumulate_cycle_consistency(images, batch_idx, episodes)
 
         imagined = self.model.tactile_with_random_actions(output["features"], tactile)
         imagined_metrics = self.model.tactile_losses(imagined, tactile[:, :-1].flatten(0, 1), tactile[:, 1:].flatten(0, 1))

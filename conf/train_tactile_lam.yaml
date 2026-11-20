@@ -33,6 +33,7 @@ lightning_module:
   compute_metrics_every_n_steps: ${trainer.log_every_n_steps}
   commit_loss_weight: 1.0
   perceptual_loss_weight: 0.01
+  cycle_consistency_batches: 8     # validation batches for the A -> B -> A cycle test (val/cycle/*), 0 disables
 
 trainer:
   _target_: lightning.Trainer

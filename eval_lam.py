@@ -42,7 +42,7 @@ from hydra.utils import instantiate
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
-from lam.metrics import cycle_consistency, cycle_consistency_summary
+from lam.metrics import cycle_consistency, cycle_consistency_summary, partner_indices
 from lam.tactile import ALL_BEND_CELLS, BEND_CELLS, CONTACT_THRESHOLD, FINGER_COLUMNS, PRESSURE_CELLS, canonical_cells
 
 FINGERS = list(FINGER_COLUMNS)                       # pinky, ring, middle, index, thumb
@@ -289,16 +289,6 @@ def ternary(x, tau):
 # ----------------------------------------------------------------------------------------------------------------------
 
 @torch.no_grad()
-def partner_indices(episodes):
-    """Pour chaque clip du batch, un autre clip d'un épisode différent (décalage circulaire), pour le test de cycle."""
-    B = len(episodes)
-    for shift in list(range(B // 2, B)) + list(range(1, B // 2)):
-        partner = [(i + shift) % B for i in range(B)]
-        if all(episodes[i] != episodes[j] for i, j in enumerate(partner)):
-            return torch.tensor(partner)
-    return torch.tensor([(i + B // 2) % B for i in range(B)])     # un seul épisode dans le batch : faute de mieux
-
-
 def collect(model, loader, camera, args, device, patch_size):
     K = model.vq.codebook_size
     codebook = model.vq.dequantize(torch.arange(K, device=device)[None])[0]          # (K, D)
