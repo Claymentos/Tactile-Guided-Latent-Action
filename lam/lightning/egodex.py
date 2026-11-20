@@ -61,31 +61,47 @@ class EgoDexDataModule(L.LightningDataModule):
                  window_size: int = 16,
                  validation_split: float = 0.2,
                  batch_size: int = 32,
-                 num_workers: int = 6):
+                 num_workers: int = 6,
+                 num_context: int = 4,
+                 patch_size: int = 14,
+                 img_size: int = 224,
+                 backbone_name: str = 'dinov2',
+                 return_heatmaps: bool = True,
+                 seed: int = 42):
+        """num_context transitions par clip (num_context + 1 frames espacées de window_size / num_context) ;
+        patch_size 14 -> images 224 x 392 (DINOv2), 16 -> 224 x 384 (DINOv3)."""
         super().__init__()
         self.data_path = data_path
         self.window_size = window_size
         self.validation_split = validation_split
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.num_context = num_context
+        self.patch_size = patch_size
+        self.img_size = img_size
+        self.backbone_name = backbone_name
+        self.return_heatmaps = return_heatmaps
+        self.seed = seed
 
     def setup(self, stage):
         dataset = EgoDexDataset(root_folder=self.data_path, 
                                 max_context_len=self.window_size, 
-                                num_context=4, 
-                                patch_size=14, 
-                                img_size=224, 
-                                backbone_name='dinov2', 
+                                num_context=self.num_context, 
+                                patch_size=self.patch_size, 
+                                img_size=self.img_size, 
+                                backbone_name=self.backbone_name, 
                                 train=True, 
                                 evaluate=False, 
                                 keys='all', 
-                                var_time=False)
+                                var_time=False,
+                                return_heatmaps=self.return_heatmaps)
+        self.num_tasks = len(dataset.all_tasks)
 
         
         if self.validation_split > 0:
             validation_set_size = int(len(dataset) * self.validation_split)
             training_set_size = len(dataset) - validation_set_size
-            self.train_dataset, self.val_dataset = random_split(dataset, [training_set_size, validation_set_size])
+            self.train_dataset, self.val_dataset = random_split(dataset, [training_set_size, validation_set_size], generator=torch.Generator().manual_seed(self.seed))
 
         else:
             self.train_dataset, self.val_dataset = dataset, None

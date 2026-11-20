@@ -56,8 +56,12 @@ def get_pixels_from_kp(xyz, extrinsic_matrix, patch_size):
 
 class EgoDexDataset(Dataset):
     def __init__(self, root_folder, max_context_len=90, num_context=4, patch_size=14, img_size=224, aug=None,
-                backbone_name='dinov2', train=False, evaluate=False, keys='all', var_time=False):
+                backbone_name='dinov2', train=False, evaluate=False, keys='all', var_time=False, return_heatmaps=True):
+        """return_heatmaps=False : ne calcule pas les belief maps des 12 points (≈ 16 Mo par clip à 224 x 384) ; heatmaps
+        et all_valid_kp sont alors des tenseurs vides. metadata contient aussi 'task' (nom), 'task_id' (indice dans
+        self.all_tasks) et 'episode' (fichier vidéo)."""
         super(EgoDexDataset, self).__init__()
+        self.return_heatmaps = return_heatmaps
         if train:
             self.data_root = os.path.join(root_folder, 'part1')
         else:
@@ -65,10 +69,12 @@ class EgoDexDataset(Dataset):
 
         self.all_tasks = sorted(os.listdir(self.data_root))
         self.all_files = []
-        for task in self.all_tasks:
+        self.file_tasks = []
+        for task_id, task in enumerate(self.all_tasks):
             files = sorted(os.listdir(os.path.join(self.data_root, task)))
             files = [os.path.join(self.data_root, task, file) for file in files if file.endswith('.mp4')]
             self.all_files.extend(files)
+            self.file_tasks.extend([task_id] * len(files))
 
         self.max_context_len = max_context_len
         self.num_context = num_context
@@ -190,8 +196,11 @@ class EgoDexDataset(Dataset):
         elif self.patch_size==16:
             self.img_width = 384
 
-        heatmaps = np.empty([len(indices)-1, len(self.hand_and_tip_keys), 224, self.img_width])
-        all_valid_kp = np.empty([len(indices)-1, len(self.hand_and_tip_keys)])
+        if self.return_heatmaps:
+            heatmaps = np.empty([len(indices)-1, len(self.hand_and_tip_keys), 224, self.img_width])
+            all_valid_kp = np.empty([len(indices)-1, len(self.hand_and_tip_keys)])
+        else:
+            heatmaps, all_valid_kp = np.empty([0]), np.empty([0])
         for ii in range(len(indices)-1):
             idx = indices[ii]
             frame = self.image_transform(frames[idx].asnumpy())
@@ -202,12 +211,13 @@ class EgoDexDataset(Dataset):
                 curr_poses, cam_ext, _, _ = self.process_annotation(annotations, idx, do_belief_map=False)
             else:
                 curr_poses, _, _, _ = self.process_annotation(annotations, idx, cam_ext, do_belief_map=False)
-            next_poses, _, belief_maps, valid_kp_mask = self.process_annotation(annotations, goal_idx, cam_ext, do_belief_map=True)
+            next_poses, _, belief_maps, valid_kp_mask = self.process_annotation(annotations, goal_idx, cam_ext, do_belief_map=self.return_heatmaps)
 
             all_actions = np.concatenate([curr_poses, next_poses])
             actions.append(all_actions)
-            heatmaps[ii, :len(belief_maps)] = belief_maps                      # this is useful for running some baselines
-            all_valid_kp[ii, :len(belief_maps)] = valid_kp_mask[:,0]
+            if self.return_heatmaps:
+                heatmaps[ii, :len(belief_maps)] = belief_maps                  # this is useful for running some baselines
+                all_valid_kp[ii, :len(belief_maps)] = valid_kp_mask[:,0]
 
         idx = indices[-1]
         frame = self.image_transform(frames[idx].asnumpy())
@@ -249,6 +259,9 @@ class EgoDexDataset(Dataset):
         h, w = frames[0].shape[:2]
         metadata={}
         metadata['vid_file'] = clip_file
+        metadata['episode'] = clip_file
+        metadata['task_id'] = self.file_tasks[clip_id]
+        metadata['task'] = self.all_tasks[self.file_tasks[clip_id]]
 
 
         annotation_file = clip_file.replace('.mp4', '.hdf5')
@@ -273,6 +286,7 @@ class EgoDexDataset(Dataset):
         metadata['indices'] = torch.Tensor(np.array(indices))
 
         curr_frames, actions, heatmaps, all_valid_kp = self.process_data(frames, annotations, indices)
+        annotations.close()
 
         return curr_frames, actions, rel_t, heatmaps, all_valid_kp, metadata
 

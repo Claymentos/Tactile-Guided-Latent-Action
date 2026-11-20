@@ -376,9 +376,11 @@ class LAMTraining(L.LightningModule):
         return loss
     
     def preprocess(self, batch):
-        if 'obs' in batch.keys():
-            batch["images"] = torch.flip(batch['obs']['agentview_rgb'], dims=(-2,)) / 255.0           # Images on Libero are upside down
-
+        if isinstance(batch, (list, tuple)):          # EgoTouch: (videos, tactile, mask, rel_t, metadata)
+            videos = batch[0]
+            batch = {"images": videos["chest"] if isinstance(videos, dict) else videos}
+        elif 'obs' in batch:
+            batch["images"] = torch.flip(batch['obs']['agentview_rgb'], dims=(-2,)) / 255.0
         return batch
     
     def log_videos(self, target_view, recon_video, random_reconstruction):

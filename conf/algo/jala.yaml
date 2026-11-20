@@ -1,0 +1,27 @@
+# JALA-LAM (lam.jala.JALA) : actions latentes continues alignées sur un prédicteur, sans reconstruction de frames.
+model:
+  _target_: lam.jala.JALA
+  feature_extractor: ${algo.feature_extractor.model}
+  feature_dim: ${algo.feature_extractor.model.model_dim}
+  image_size: [224, 384]           # EgoDex avec patch_size 16 (EgoDexDataModule.patch_size)
+  patch_size: ${algo.feature_extractor.model.patch_size}
+  dim: 512
+  num_queries: 8                   # K actions latentes par transition, moitié main gauche / moitié main droite
+  perceiver_layers: 2              # comme le papier
+  perceiver_heads: 8
+  predictor_layers: 6              # remplace le VLM (28 couches dans le papier)
+  predictor_heads: 8
+  align_layer: 4                   # h = couche 4/6 (19/28 dans le papier)
+  max_steps: 16
+  num_tasks: 256                   # embedding de la tâche EgoDex (indice modulo num_tasks) ; 0 le désactive
+  dropout: 0.0
+  pair_fusion: patch               # LAP/LSP : un token par patch, [f_t, f_t+δ - f_t] (sequence : les 2P tokens)
+  predictor_visual_pool: 2         # le prédicteur voit aussi les patchs DINO de v_t poolés 2x2 (84 tokens) ; 0 : non
+  ema_decay: 0.999                 # α de l'EMA asymétrique LAP <-> LSP
+  align_weight: 0.5                # λ
+  align_norm: true                 # LayerNorm de h et z avant la L1 (false : L1 brute du papier)
+  action_weight: 1.0
+  labeled_fraction: 1.0            # < 1 : simule des vidéos sans annotation de main (entraînement hybride)
+  probe_weight: 1.0                # sonde sur z détaché
+  z_action_weight: 0.0             # garde-fou hors papier : actions réelles prédites depuis z (gradient vers LAP)
+  variance_weight: 0.0             # garde-fou hors papier : variance VICReg sur z
