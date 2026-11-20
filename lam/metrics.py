@@ -210,3 +210,123 @@ def _compute_metrics(metrics, batch, recon_video, features, recon_features, indi
         ret["distinctiveness_cosine"] = distinctiveness_cosine_value
 
     return ret
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Cycle-consistance des actions latentes (Garrido et al. 2026, "Learning Latent Action World Models In The Wild",
+# arXiv 2601.05230, figure 5 b)
+#
+# On infère les actions de la vidéo A, on les applique à une autre vidéo B (déroulé autorégressif depuis sa première
+# frame), on ré-infère les actions sur la vidéo B ainsi prédite, puis on les applique à A. Si les actions se transfèrent,
+# l'erreur de prédiction sur A avec les actions « cycliques » reste proche de celle avec les actions d'origine.
+# Fonctionne pour LAM et TactileLAM (mêmes encode / vq / decode / feature_extractor).
+# ----------------------------------------------------------------------------------------------------------------------
+
+def _is_pixel_extractor(model):
+    from lam.feature_extractor.base import Identity
+    return isinstance(model.feature_extractor, Identity)
+
+
+def _encode_features(model, features):
+    """Encodeur + VQ sur une suite de features (B, T, P, D), registres jamais masqués (comme à l'évaluation).
+    Renvoie les actions quantifiées (B, T-1, D), leurs codes (B, T-1) et les registres de sortie (ou None)."""
+    B, T, P, _ = features.shape
+    R = model.num_register_tokens
+    registers = model.register_tokens.expand(B, R, -1).unsqueeze(1).expand(B, T, R, -1) if R else None
+    mask = torch.zeros((B, T, R + P), dtype=torch.bool, device=features.device)
+    logits, readout = model.encode(features, registers=registers, attention_mask=mask)
+    tokens, indices, _ = model.vq.quantize(readout[:, 1:])
+    return tokens, indices, (logits[:, 1:, :R] if R else None)
+
+
+def _decode(model, features, tokens, registers):
+    """Décodeur : features des frames d'entrée (B, t, P, D) + une action par frame -> tokens prédits (B, t, P, D)."""
+    B, t, P, _ = features.shape
+    R = model.num_register_tokens
+    mask = torch.zeros((B, t, R + P), dtype=torch.bool, device=features.device)
+    return model.decode(features, actions=tokens, registers=registers, attention_mask=mask)[:, :, R:]
+
+
+def _prediction_error(model, predicted, images, features):
+    """MSE par clip (B,) dans l'espace de la loss d'entraînement : pixels avec Identity, features avec DINO.
+    predicted : tokens prédits des frames 1..T-1 ; images, features : la vidéo réelle (frames 0..T-1)."""
+    if _is_pixel_extractor(model):
+        video = model.feature_extractor._post_process(predicted)
+        return ((video.float() - images[:, 1:].float()) ** 2).mean((1, 2, 3, 4))
+    return ((predicted.float() - features[:, 1:].float()) ** 2).mean((1, 2, 3))
+
+
+def rollout(model, first_features, tokens, registers=None):
+    """Déroulé autorégressif : depuis les features de la frame 0 (B, P, D), applique les actions (B, T-1, D) une à une,
+    chaque frame prédite servant d'entrée à l'étape suivante. Renvoie les features d'entrée de la vidéo prédite, frame 0
+    comprise (B, T, P, D) : avec Identity, chaque prédiction est remise en image puis ré-encodée par l'extracteur, pour
+    retrouver l'espace d'entrée de l'encodeur."""
+    inputs = [first_features]
+    for t in range(tokens.shape[1]):
+        context = torch.stack(inputs, dim=1)                                           # (B, t+1, P, D)
+        reg = registers[:, :t + 1] if registers is not None else None
+        predicted = _decode(model, context, tokens[:, :t + 1], reg)[:, -1]             # (B, P, D) la frame t+1
+        if _is_pixel_extractor(model):
+            image = model.feature_extractor._post_process(predicted[:, None])          # (B, 1, C, H, W)
+            predicted = model.feature_extractor(image)[:, 0]
+        inputs.append(predicted.to(first_features.dtype))
+    return torch.stack(inputs, dim=1)
+
+
+def _random_tokens(model, tokens):
+    """Actions tirées au hasard : codes uniformes du codebook, ou actions du batch permutées sans codebook."""
+    if model.vq.get_codebook() is None:
+        return tokens[torch.randperm(tokens.shape[0], device=tokens.device)]
+    indices = torch.randint(0, model.vq.codebook_size, tokens.shape[:2], device=tokens.device)
+    return model.vq.dequantize(indices).to(tokens.dtype)
+
+
+@torch.no_grad()
+def cycle_consistency(model, images_a, images_b):
+    """Cycle-consistance A -> B -> A des actions latentes (figure 5 b de arXiv 2601.05230).
+
+    images_a, images_b : (B, T, C, H, W), deux vidéos différentes par ligne du batch.
+      1. z_A = actions inférées sur A
+      2. B' = déroulé de z_A depuis la première frame de B
+      3. z_cycle = actions ré-inférées sur B'
+      4. prédiction de A (frames réelles t -> t+1, comme à l'entraînement) avec z_A, avec z_cycle, et avec des actions
+         au hasard (référence : aucune information transférée)
+    Renvoie, par clip (B,) : les trois erreurs, et l'accord des codes z_A / z_cycle (fraction des transitions où le code
+    ré-inféré est identique ; NaN sans codebook).
+    """
+    features_a, features_b = model.feature_extractor(images_a), model.feature_extractor(images_b)
+    tokens_a, indices_a, registers_a = _encode_features(model, features_a)
+    _, _, registers_b = _encode_features(model, features_b)        # les registres décrivent la scène B, pas l'action
+
+    transferred = rollout(model, features_b[:, 0], tokens_a, registers_b)                 # B' (B, T, P, D)
+    tokens_cycle, indices_cycle, _ = _encode_features(model, transferred)
+
+    context = features_a[:, :-1]
+    errors = {name: _prediction_error(model, _decode(model, context, tokens.to(context.dtype), registers_a), images_a, features_a)
+              for name, tokens in (('original', tokens_a), ('cycle', tokens_cycle), ('random', _random_tokens(model, tokens_a)))}
+    if indices_a is not None and indices_cycle is not None and indices_a.dim() == 2:
+        agreement = (indices_a == indices_cycle).float().mean(1)
+    else:
+        agreement = torch.full_like(errors['original'], float('nan'))
+    return dict(error_original=errors['original'], error_cycle=errors['cycle'], error_random=errors['random'],
+                code_agreement=agreement, indices_original=indices_a, indices_cycle=indices_cycle)
+
+
+def cycle_consistency_summary(error_original, error_cycle, error_random, code_agreement, indices_original=None, **_):
+    """Agrège les sorties de cycle_consistency (concaténées sur l'évaluation, tableaux numpy).
+
+    - hausse_erreur : erreur(cycle) - erreur(origine), la quantité de la figure 5 b (0 = transfert parfait)
+    - hausse_relative : hausse / (erreur(hasard) - erreur(origine)) ; 0 = parfait, 1 = pas mieux que des actions au
+      hasard. Rend les modèles comparables malgré des erreurs absolues différentes
+    - accord_des_codes, et l'accord attendu par hasard sum_k p_k^2 avec la fréquence p_k des codes
+    """
+    mean = lambda x: float(np.nanmean(x))
+    psnr_of = lambda mse: float(10 * np.log10(1.0 / max(mean(mse), 1e-12)))
+    gap, random_gap = mean(error_cycle) - mean(error_original), mean(error_random) - mean(error_original)
+    summary = dict(erreur_origine=mean(error_original), erreur_cycle=mean(error_cycle), erreur_hasard=mean(error_random),
+                   psnr_origine=psnr_of(error_original), psnr_cycle=psnr_of(error_cycle), psnr_hasard=psnr_of(error_random),
+                   hausse_erreur=gap, hausse_relative=gap / random_gap if random_gap > 0 else float('nan'),
+                   accord_des_codes=mean(code_agreement))
+    if indices_original is not None:
+        _, counts = np.unique(indices_original, return_counts=True)
+        summary['accord_des_codes_hasard'] = float(((counts / counts.sum()) ** 2).sum())
+    return summary

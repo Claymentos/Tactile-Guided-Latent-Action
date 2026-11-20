@@ -22,6 +22,22 @@ IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
 
 
+def reconstruction_loss(feature_extractor, logits, x, features, change_threshold=None):
+    """Loss de reconstruction des frames 1..T-1 et vidéo reconstruite, plus des métriques à logger.
+
+    change_threshold=None : la loss de l'extracteur sur toute l'image (comportement d'origine).
+    Sinon (extracteur Identity uniquement) : la MSE des seuls patchs dont la différence absolue moyenne entre t et t+1
+    dépasse change_threshold ; la MSE sur toute l'image est gardée dans les métriques (recon_loss_full), avec la
+    fraction de patchs qui changent (change_frac).
+    """
+    recon_loss, recon_video = feature_extractor.compute_loss(logits, x[:, 1:], features[:, 1:])
+    if change_threshold is None:
+        return recon_loss, recon_video, {}
+    assert hasattr(feature_extractor, 'compute_patch_loss'), "recon_change_threshold demande l'extracteur Identity"
+    patch_loss, change_mask = feature_extractor.compute_patch_loss(x[:, 1:], x[:, :-1], recon_video, change_threshold)
+    return patch_loss, recon_video, dict(recon_loss_full=recon_loss.detach(), change_frac=change_mask.float().mean())
+
+
 class SigLIPContrastiveLoss(nn.Module): 
     def __init__(self, init_temperature: float = 0.07, init_bias: float = -10.0):
         super().__init__()
@@ -795,8 +811,11 @@ class LAM(nn.Module):
                  perceptual_regularizer=None,
                  num_register_tokens=0,
                  register_dropout_mean=0.0,
-                 register_dropout_std=0.0):
+                 register_dropout_std=0.0,
+                 recon_change_threshold=None):
         super().__init__()
+        # None : MSE sur toute l'image ; sinon MSE des seuls patchs qui changent de plus que ce seuil entre t et t+1
+        self.recon_change_threshold = recon_change_threshold
         self.encoder = encoder                                  # STTransformer(add_readout_token=True) : vidéo -> actions continues
         self.decoder = decoder                                  # Transformer ou STTransformer : (frame t, action) -> frame t+1
         self.vq = vq                                            # quantificateur (VQ, NSVQ, FSQ...) : action continue -> code
@@ -811,7 +830,7 @@ class LAM(nn.Module):
 
         if num_register_tokens:
             # (1, R, D), avec D lu sur la table des positions de l'encodeur ; initialisés presque à zéro
-            self.register_tokens = nn.Parameter(torch.zeros(1, num_register_tokens, encoder.spatial_pos_embedding.weight.shape[1]))
+            self.register_tokens = nn.Parameter(torch.zeros(1, num_register_tokens, encoder.temporal_pos_embedding.weight.shape[1]))
             nn.init.normal_(self.register_tokens, std=1e-6)
 
 
@@ -875,7 +894,7 @@ class LAM(nn.Module):
         # 6. Loss de reconstruction contre les frames 1..T-1. Avec Identity : les tokens prédits sont remis en pixels
         #    (to_image + sigmoid) et comparés aux images x[:, 1:] ; avec DINO : comparés aux features[:, 1:].
         #    recon_video (2, 4, 3, 128, 160) : les images prédites
-        recon_loss, recon_video = self.feature_extractor.compute_loss(logits, x[:, 1:], features[:, 1:])                                        # The first frame of x is not used as a target
+        recon_loss, recon_video, recon_metrics = reconstruction_loss(self.feature_extractor, logits, x, features, self.recon_change_threshold)  # The first frame of x is not used as a target
 
         if self.perceptual_regularizer is not None:
             # 7. Loss perceptuelle (optionnelle) : distance entre les features d'un réseau gelé sur les vraies images et
@@ -888,7 +907,7 @@ class LAM(nn.Module):
             perceptual_loss = 0.0
 
         # La loss totale (recon + poids * commit + poids * perceptual) est assemblée dans le module Lightning
-        return dict(recon_loss=recon_loss, perceptual_loss=perceptual_loss, commit_loss=commit_loss, indices=indices, action_tokens=action_tokens, features=features, recon_features=logits, recon_video=recon_video)
+        return dict(recon_loss=recon_loss, perceptual_loss=perceptual_loss, commit_loss=commit_loss, indices=indices, action_tokens=action_tokens, features=features, recon_features=logits, recon_video=recon_video, **recon_metrics)
 
     def encode(self, x, registers=None, attention_mask=None):
         # tokens (B, T, P, D) -> (tous les tokens de sortie, readouts (B, T, D))
@@ -949,8 +968,11 @@ class TactileLAM(nn.Module):
                  perceptual_regularizer=None,
                  num_register_tokens=0,
                  register_dropout_mean=0.0,
-                 register_dropout_std=0.0):
+                 register_dropout_std=0.0,
+                 recon_change_threshold=None):
         super().__init__()
+        # None : MSE sur toute l'image ; sinon MSE des seuls patchs qui changent de plus que ce seuil entre t et t+1
+        self.recon_change_threshold = recon_change_threshold
         # ---------- vidéo (LAM) ----------
         self.encoder = encoder                                  # STTransformer(add_readout_token=True) : vidéo -> actions continues
         self.decoder = decoder                                  # Transformer ou STTransformer : (frame t, action) -> frame t+1
@@ -966,7 +988,7 @@ class TactileLAM(nn.Module):
 
         if num_register_tokens:
             # (1, R, D), avec D lu sur la table des positions de l'encodeur ; initialisés presque à zéro
-            self.register_tokens = nn.Parameter(torch.zeros(1, num_register_tokens, encoder.spatial_pos_embedding.weight.shape[1]))
+            self.register_tokens = nn.Parameter(torch.zeros(1, num_register_tokens, encoder.temporal_pos_embedding.weight.shape[1]))
             nn.init.normal_(self.register_tokens, std=1e-6)
 
         # ---------- toucher ----------
@@ -1084,7 +1106,7 @@ class TactileLAM(nn.Module):
         recon_features = self.decode(features[:, :-1], actions=action_tokens, registers=register_readouts, attention_mask=attention_mask[:, :-1])
         recon_features = recon_features[:, :, self.num_register_tokens:, :]                # (2, 4, 80, 512), sans les registres
         # 6. Loss de reconstruction contre les frames 1..T-1 (en pixels avec Identity, en features avec DINO)
-        recon_loss, recon_video = self.feature_extractor.compute_loss(recon_features, x[:, 1:], features[:, 1:])
+        recon_loss, recon_video, recon_metrics = reconstruction_loss(self.feature_extractor, recon_features, x, features, self.recon_change_threshold)
 
         if self.perceptual_regularizer is not None:
             # 7. Loss perceptuelle (optionnelle) : features d'un réseau gelé, vraies images vs reconstruites
@@ -1103,6 +1125,7 @@ class TactileLAM(nn.Module):
         # La loss totale (recon + commit + perceptual + tactile, avec leurs poids) est assemblée dans le module Lightning
         output = dict(recon_loss=recon_loss, perceptual_loss=perceptual_loss, commit_loss=commit_loss, indices=indices,
                       action_tokens=action_tokens, features=features, recon_features=recon_features, recon_video=recon_video)
+        output.update(recon_metrics)
         output.update(self.tactile_losses(tactile_prediction, tactile_t, tactile_t_H))
         output["tactile_prediction"] = tactile_prediction
         return output

@@ -303,6 +303,9 @@ class LAMTraining(L.LightningModule):
         self.log("train/recon_loss", output["recon_loss"])
         self.log("train/perceptual_loss", output["perceptual_loss"])
         self.log("train/commit_loss", output["commit_loss"])
+        for key in ("recon_loss_full", "change_frac"):      # loss sur les patchs qui changent (recon_change_threshold)
+            if key in output:
+                self.log(f"train/{key}", output[key])
 
         if batch_idx % self.compute_metrics_every_n_steps == 0:
             with torch.no_grad():
@@ -333,6 +336,9 @@ class LAMTraining(L.LightningModule):
         self.log("val/recon_loss", output["recon_loss"])
         self.log("val/perceptual_loss", output["perceptual_loss"])
         self.log("val/commit_loss", output["commit_loss"])
+        for key in ("recon_loss_full", "change_frac"):      # loss sur les patchs qui changent (recon_change_threshold)
+            if key in output:
+                self.log(f"val/{key}", output[key])
 
         random_reconstruction = self.compute_metrics(target_view, output["recon_video"], output["features"], output["recon_features"], output["indices"], output["action_tokens"], prefix="val", return_random_reconstruction=True)
 
@@ -711,6 +717,9 @@ class TactileLAMTraining(LAMTraining):
         self.log(f"{prefix}/loss", loss, batch_size=batch_size)
         for key in ("recon_loss", "perceptual_loss", "commit_loss", *self.TACTILE_LOGGED):
             self.log(f"{prefix}/{key}", output[key], batch_size=batch_size)
+        for key in ("recon_loss_full", "change_frac"):      # loss sur les patchs qui changent (recon_change_threshold)
+            if key in output:
+                self.log(f"{prefix}/{key}", output[key], batch_size=batch_size)
         return images, tactile, tactile_mask, output, loss
 
     def training_step(self, batch, batch_idx):

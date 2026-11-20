@@ -1,0 +1,20 @@
+# TactileLAM dont les actions sont poussées vers les mouvements :
+#   - loss de reconstruction sur les seuls patchs qui changent entre t et t+1 (algo.model.recon_change_threshold)
+#   - encodeur sans embedding spatial (algo.model.encoder.use_spatial_pos_embedding)
+# Tout le reste vient de train_tactile_lam.yaml.
+#   sbatch train.sh --config-name train_tactile_lam_motion
+# Calibrer le seuil d'abord : python calibrate_change_threshold.py (quantiles de |frame t+1 - frame t| par patch).
+defaults:
+  - train_tactile_lam
+  - _self_
+
+algo:
+  model:
+    recon_change_threshold: 0.05     # à remplacer par le quantile choisi avec calibrate_change_threshold.py
+    encoder:
+      use_spatial_pos_embedding: false
+
+trainer:
+  max_steps: 30_000                  # les runs précédents surapprennent après 10-15k steps
+  logger:
+    name: tactile_lam_motion_patch_loss_no_spatial_pos

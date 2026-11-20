@@ -128,7 +128,8 @@ class STTransformer(nn.Module):
                  patch_size,
                  max_seq_len=32,
                  add_readout_token=False,
-                 is_causal=True):
+                 is_causal=True,
+                 use_spatial_pos_embedding=True):
         super().__init__()
         # image_size et patch_size acceptent un entier (carré) ou un couple (hauteur, largeur)
         image_height, image_width = (image_size, image_size) if isinstance(image_size, int) else tuple(image_size)   # (128, 160)
@@ -149,7 +150,14 @@ class STTransformer(nn.Module):
         # Positions apprises : une table (num_patches, D) indexée par l'emplacement du token dans la frame, et une table
         # (max_seq_len, D) indexée par le numéro de frame. L'attention ignore l'ordre des tokens : sans ces vecteurs, le
         # modèle ne saurait ni où est un patch dans l'image, ni à quelle frame il appartient.
-        self.spatial_pos_embedding = nn.Embedding(num_patches, model_dim)               # (81, 512)
+        # use_spatial_pos_embedding=False (encodeur) : aucune position spatiale, l'attention spatiale voit un ensemble de
+        # patchs ; l'action dit alors « ce qui change » sans « où ». Le readout, créé à zéro, perd la ligne de la table
+        # qui le distinguait des patchs : il reçoit à la place un vecteur appris.
+        self.use_spatial_pos_embedding = use_spatial_pos_embedding
+        if use_spatial_pos_embedding:
+            self.spatial_pos_embedding = nn.Embedding(num_patches, model_dim)           # (81, 512)
+        elif add_readout_token:
+            self.readout_embedding = nn.Parameter(torch.randn(model_dim) * 0.02)       # (512,)
         self.temporal_pos_embedding = nn.Embedding(max_seq_len, model_dim)              # (max_seq_len, 512), T <= max_seq_len
 
         self.transformer = nn.ModuleDict(dict(
@@ -181,6 +189,8 @@ class STTransformer(nn.Module):
         if self.add_readout_token:
             # Encodeur : un token nul par frame, concaténé après les 80 patchs (axe 2 = axe des tokens)
             readout_token = torch.zeros((b, t, 1, f), device=x.device, dtype=x.dtype)  # (2, 5, 1, 512)
+            if not self.use_spatial_pos_embedding:
+                readout_token = readout_token + self.readout_embedding.to(x.dtype)
             x = torch.cat([x, readout_token], dim=2)                                    # (2, 5, 81, 512)
             # Le masque reçoit une colonne False pour le readout : il n'est jamais masqué
             attention_mask = torch.cat([attention_mask, torch.zeros((b, t, 1), dtype=torch.bool, device=x.device)], dim=-1) if attention_mask is not None else None   # (2, 5, 81)
@@ -196,17 +206,17 @@ class STTransformer(nn.Module):
 
         # Indices de position : [0, 1, ..., p-1] pour les emplacements et [0, ..., t-1] pour les frames.
         # long : nn.Embedding attend des indices entiers ; device : sur le même GPU que x.
-        spatial_pos = torch.arange(0, p, dtype=torch.long, device=x.device)            # [0, ..., 80], le 80 est le readout
         temporal_pos = torch.arange(0, t, dtype=torch.long, device=x.device)           # [0, 1, 2, 3, 4]
 
         # Lecture des lignes correspondantes dans les tables apprises
-        spatial_pos_embd = self.spatial_pos_embedding(spatial_pos)                      # (81, 512)
         temporal_pos_embd = self.temporal_pos_embedding(temporal_pos)                   # (5, 512)
 
         # Position spatiale : on regroupe (clip, frame) pour que l'addition de (81, 512) se diffuse sur les 10 frames ;
         # le token k de chaque frame reçoit la ligne k
         x = rearrange(x, 'b t p f -> (b t) p f')                                        # (10, 81, 512)
-        x = x + spatial_pos_embd                                                        # (10, 81, 512) + (81, 512)
+        if self.use_spatial_pos_embedding:
+            spatial_pos = torch.arange(0, p, dtype=torch.long, device=x.device)        # [0, ..., 80], le 80 est le readout
+            x = x + self.spatial_pos_embedding(spatial_pos)                             # (10, 81, 512) + (81, 512)
 
         # Position temporelle : on regroupe (clip, patch) pour que l'addition de (5, 512) se diffuse sur les 162
         # séquences ; chaque token de la frame t reçoit la ligne t

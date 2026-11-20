@@ -1,0 +1,152 @@
+algo:
+  model:
+    _target_: lam.lam.TactileLAM
+    feature_extractor:
+      _target_: lam.feature_extractor.base.Identity
+      model_dim: 512
+      image_size:
+      - 128
+      - 160
+      patch_size: 16
+      channels: 3
+      loss_fn:
+        _target_: torch.nn.MSELoss
+    perceptual_regularizer: null
+    encoder:
+      _target_: lam.st.STTransformer
+      model_dim: 512
+      n_layer: 18
+      num_spatial_heads: 8
+      num_temporal_heads: 8
+      dropout: 0.1
+      image_size:
+      - 128
+      - 160
+      patch_size: 16
+      max_seq_len: 16
+      add_readout_token: true
+    decoder:
+      _target_: lam.st.Transformer
+      model_dim: 512
+      n_layer: 18
+      num_spatial_heads: 8
+      dropout: 0.1
+      image_size:
+      - 128
+      - 160
+      patch_size: 16
+    vq:
+      _target_: lam.quantization.wrappers.VQ
+      model:
+        _target_: vector_quantize_pytorch.VectorQuantize
+        dim: 512
+        codebook_size: 8
+        use_cosine_sim: true
+        commitment_weight: 0.25
+        codebook_dim: 32
+        decay: 0.8
+        kmeans_init: false
+        threshold_ema_dead_code: 2
+    num_register_tokens: 0
+    register_dropout_mean: 0.0
+    register_dropout_std: 0.0
+    tactile_target: false
+    model_dim: 512
+    nhead: 8
+    tactile_dec_layers: 4
+    pressure_weight: 100.0
+    bend_weight: 400.0
+    contact_weight: 1.0
+    contact_cells_weight: 9.0
+    contact_pos_weight: 5.0
+  quantization:
+    vq:
+      _target_: lam.quantization.wrappers.VQ
+      model:
+        _target_: vector_quantize_pytorch.VectorQuantize
+        dim: 512
+        codebook_size: 8
+        use_cosine_sim: true
+        commitment_weight: 0.25
+        codebook_dim: 32
+        decay: 0.8
+        kmeans_init: false
+        threshold_ema_dead_code: 2
+  feature_extractor:
+    model:
+      _target_: lam.feature_extractor.base.Identity
+      model_dim: 512
+      image_size:
+      - 128
+      - 160
+      patch_size: 16
+      channels: 3
+      loss_fn:
+        _target_: torch.nn.MSELoss
+  perceptual_regularizer:
+    model: null
+data:
+  data_module:
+    _target_: lam.lightning.egotouch.EgoTouchDataModule
+    data_path: /lustre/fsn1/projects/rech/iyg/uvx44rt/egotouch/data_128
+    camera: chest
+    window_size: 40
+    num_context: 4
+    patch_size: ${algo.feature_extractor.model.patch_size}
+    img_size: ${algo.feature_extractor.model.image_size.0}
+    aug: false
+    backbone_name: dinov3
+    tactile_repr: grid
+    mano_uv_path: /lustre/fsn1/projects/rech/iyg/uvx44rt/mano/mano_uv.npz
+    val_split: val
+    batch_size: 64
+    num_workers: 16
+    normalize: false
+metrics:
+  delta_psnr: true
+  ssim: true
+  avg_optical_flow_diff: true
+  feature_l1_loss: false
+  explained_variance: false
+  feature_cosine_similarity: false
+  mse_ratio: false
+  delta_snr: false
+  feature_imagination_and_reconstruction_cosine_similarity: false
+  codebook_usage: true
+  good_turing_coverage: false
+  distinctiveness_cosine: true
+checkpoint_path: /lustre/fswork/projects/rech/iyg/uvx44rt/Tactile-Guided-Latent-Action/runs/wandb/offline-run-20261116_233353-q5kty2k3/checkpoints/epoch=176-step=40000.ckpt
+lightning_module:
+  _target_: lam.lightning.lam.TactileLAMTraining
+  model: ${algo.model}
+  camera: ${data.data_module.camera}
+  tactile_loss_weight: 0.01
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  scheduler_max_steps: ${trainer.max_steps}
+  codebook_replace_freq: 0.05
+  metrics: ${metrics}
+  compute_metrics_every_n_steps: ${trainer.log_every_n_steps}
+  commit_loss_weight: 1.0
+  perceptual_loss_weight: 0.01
+trainer:
+  _target_: lightning.Trainer
+  default_root_dir: ./runs
+  fast_dev_run: false
+  log_every_n_steps: 100
+  max_steps: 300000
+  gradient_clip_val: 1.0
+  precision: bf16-mixed
+  logger:
+    _target_: lightning.pytorch.loggers.WandbLogger
+    name: no_tactile_w40_commit1_resume40k
+    save_dir: ${trainer.default_root_dir}
+    mode: offline
+    project: Tactile-guided-Latent-Action
+    resume: allow
+    save_code: true
+  callbacks:
+  - _target_: lightning.pytorch.callbacks.LearningRateMonitor
+    logging_interval: step
+  - _target_: lightning.pytorch.callbacks.ModelCheckpoint
+    every_n_train_steps: 5000

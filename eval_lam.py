@@ -14,6 +14,9 @@ Les actions sont calculées sur un split d'EgoTouch (vidéo seule, comme à l'in
                        et rang du code inféré parmi les K (le meilleur code = rang 1, hasard = (K+1)/2).
   5. attention         attention spatiale du token readout sur les patchs, par couche : concentration et corrélation
                        avec le mouvement réel entre t-1 et t.
+  6. cycle-consistance actions de A appliquées à une vidéo B d'un autre épisode, ré-inférées sur la vidéo prédite, puis
+                       réappliquées à A (figure 5 b de arXiv 2601.05230) : hausse de l'erreur sur A, normalisée par celle
+                       d'actions au hasard, et accord des codes.
 
 Exécuter sur le run A (tactile_target=false) et le run B (true) et comparer les summary.json.
 
@@ -39,6 +42,7 @@ from hydra.utils import instantiate
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
+from lam.metrics import cycle_consistency, cycle_consistency_summary
 from lam.tactile import ALL_BEND_CELLS, BEND_CELLS, CONTACT_THRESHOLD, FINGER_COLUMNS, PRESSURE_CELLS, canonical_cells
 
 FINGERS = list(FINGER_COLUMNS)                       # pinky, ring, middle, index, thumb
@@ -285,6 +289,16 @@ def ternary(x, tau):
 # ----------------------------------------------------------------------------------------------------------------------
 
 @torch.no_grad()
+def partner_indices(episodes):
+    """Pour chaque clip du batch, un autre clip d'un épisode différent (décalage circulaire), pour le test de cycle."""
+    B = len(episodes)
+    for shift in list(range(B // 2, B)) + list(range(1, B // 2)):
+        partner = [(i + shift) % B for i in range(B)]
+        if all(episodes[i] != episodes[j] for i, j in enumerate(partner)):
+            return torch.tensor(partner)
+    return torch.tensor([(i + B // 2) % B for i in range(B)])     # un seul épisode dans le batch : faute de mieux
+
+
 def collect(model, loader, camera, args, device, patch_size):
     K = model.vq.codebook_size
     codebook = model.vq.dequantize(torch.arange(K, device=device)[None])[0]          # (K, D)
@@ -294,6 +308,7 @@ def collect(model, loader, camera, args, device, patch_size):
     inter = {k: [] for k in ('energy_entropy', 'energy_top10', 'energy_motion_corr', 'visual_std', 'real_change',
                              'tactile_std', 'pixel_rank', 'bend_rank', 'bend_err_inferred', 'bend_err_best')}
     attn = {}
+    cycle = {k: [] for k in ('error_original', 'error_cycle', 'error_random', 'code_agreement', 'indices_original')}
     visuals = []
     autocast = torch.autocast('cuda', dtype=torch.bfloat16, enabled=args.bf16 and device.type == 'cuda')
 
@@ -352,6 +367,10 @@ def collect(model, loader, camera, args, device, patch_size):
                 if batch_idx == 0:
                     visuals.append(video[0, 0].cpu())
             inferred_video, _ = decode(model, enc, images, enc['tokens'])
+            if B > 1:
+                cyc = cycle_consistency(model, images, images[partner_indices(metadata['episode']).to(device)])
+                for k in cycle:
+                    cycle[k].append(cyc[k].float().flatten().cpu())
         pixel_err, bend_pred = torch.stack(pixel_err), torch.stack(bend_pred)        # (K, B, T-1), (K, B, T-1, 2, 5)
         variance = (s2 / K - (s1 / K) ** 2).clamp(min=0)                             # (B, T-1, 3, H, W)
         energy = patch_map(variance, patch_size).flatten(0, 1)                       # (N, P)
@@ -386,7 +405,8 @@ def collect(model, loader, camera, args, device, patch_size):
     if inter:
         inter['K'] = K
     attn = {l: {k: torch.cat(v).numpy() for k, v in d.items()} for l, d in attn.items()}
-    return data, inter, attn, visuals
+    cycle = {k: torch.cat(v).numpy() for k, v in cycle.items()} if cycle['error_original'] else {}
+    return data, inter, attn, visuals, cycle
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -619,6 +639,10 @@ def print_summary(summary):
         print("\n================ ATTENTION DU READOUT ================")
         for k, v in summary['attention'].items():
             print(f"{k:10s} " + "  ".join(f"{n}={x:.3f}" for n, x in v.items()))
+    if summary['cycle_consistance']:
+        print("\n================ CYCLE-CONSISTANCE A -> B -> A ================")
+        for k, v in summary['cycle_consistance'].items():
+            print(f"{k:36s} {v:.4f}")
 
 
 def main():
@@ -645,7 +669,7 @@ def main():
     out_dir = Path(args.out or Path('eval') / Path(args.checkpoint).stem)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    data, inter, attn, visuals = collect(model, loader, camera, args, device, patch_size)
+    data, inter, attn, visuals, cycle = collect(model, loader, camera, args, device, patch_size)
     print(f"{len(data['code'])} transitions, {len(set(data['episode']))} épisodes")
 
     _, dict_summary = code_dictionary(data, out_dir)
@@ -654,7 +678,8 @@ def main():
                    copie={'dbend_abs_moyen': float(np.abs(data['dbend']).mean()),
                           'dbend_std_par_doigt': dict(zip(FINGERS, data['dbend'].reshape(-1, 2, 5).std(0).mean(0).round(4).tolist()))},
                    sondes=probes(data, args.num_folds), dictionnaire=dict_summary,
-                   interventions=interventions_summary(inter, data['dbend'].std(0)), attention=attention_summary(attn))
+                   interventions=interventions_summary(inter, data['dbend'].std(0)), attention=attention_summary(attn),
+                   cycle_consistance=cycle_consistency_summary(**cycle) if cycle else {})
     with open(out_dir / 'summary.json', 'w') as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
 

@@ -1,0 +1,296 @@
+{
+  "checkpoint": "eval/tactile_w40_commit1/epoch=198-step=45000.ckpt",
+  "split": "val",
+  "tactile_target": true,
+  "transitions": 6960,
+  "episodes": 174,
+  "copie": {
+    "dbend_abs_moyen": 0.044550225138664246,
+    "dbend_std_par_doigt": {
+      "pinky": 0.07329999655485153,
+      "ring": 0.09889999777078629,
+      "middle": 0.09780000150203705,
+      "index": 0.07999999821186066,
+      "thumb": 0.09099999815225601
+    }
+  },
+  "sondes": {
+    "z (action continue)": {
+      "dbend_r2_par_doigt": {
+        "pinky": 0.0405,
+        "ring": 0.0373,
+        "middle": 0.0323,
+        "index": 0.0155,
+        "thumb": 0.0181
+      },
+      "dbend_r2": 0.028762391600185934,
+      "dpressure_r2_par_region": {
+        "pinky": 0.0122,
+        "ring": 0.0217,
+        "middle": 0.0163,
+        "index": 0.0173,
+        "thumb": 0.0281,
+        "palm": 0.01
+      },
+      "dpressure_r2": 0.017586584855424452,
+      "camera_r2": {
+        "dy": 0.0983,
+        "dx": 0.0086,
+        "|shift|": 0.4129,
+        "|Δpixel|": 0.7666
+      },
+      "contact_onset_auroc_par_region": {
+        "pinky": 0.5372,
+        "ring": 0.5771,
+        "middle": 0.5792,
+        "index": 0.5892,
+        "thumb": 0.579,
+        "palm": 0.5591
+      },
+      "contact_onset_auroc": 0.570156708338074,
+      "contact_offset_auroc_par_region": {
+        "pinky": 0.5432,
+        "ring": 0.504,
+        "middle": 0.5272,
+        "index": 0.5446,
+        "thumb": 0.5596,
+        "palm": 0.5191
+      },
+      "contact_offset_auroc": 0.5329668039012438,
+      "ratio_doigts_sur_camera": 0.069652506614764
+    },
+    "code (one-hot)": {
+      "dbend_r2_par_doigt": {
+        "pinky": 0.0133,
+        "ring": 0.0127,
+        "middle": 0.0109,
+        "index": 0.0062,
+        "thumb": 0.0076
+      },
+      "dbend_r2": 0.010159588727405388,
+      "dpressure_r2_par_region": {
+        "pinky": 0.0029,
+        "ring": 0.0086,
+        "middle": 0.0064,
+        "index": 0.0083,
+        "thumb": 0.0115,
+        "palm": 0.0037
+      },
+      "dpressure_r2": 0.006901114272042356,
+      "camera_r2": {
+        "dy": 0.02,
+        "dx": -0.0007,
+        "|shift|": 0.275,
+        "|Δpixel|": 0.4451
+      },
+      "contact_onset_auroc_par_region": {
+        "pinky": 0.5006,
+        "ring": 0.5026,
+        "middle": 0.5452,
+        "index": 0.558,
+        "thumb": 0.5419,
+        "palm": 0.496
+      },
+      "contact_onset_auroc": 0.5240493091646202,
+      "contact_offset_auroc_par_region": {
+        "pinky": 0.4892,
+        "ring": 0.4901,
+        "middle": 0.4896,
+        "index": 0.4953,
+        "thumb": 0.4869,
+        "palm": 0.4762
+      },
+      "contact_offset_auroc": 0.48787565263426885,
+      "ratio_doigts_sur_camera": 0.036944885649695974
+    },
+    "f_t+1 - f_t (référence)": {
+      "dbend_r2_par_doigt": {
+        "pinky": -0.0124,
+        "ring": -0.0159,
+        "middle": -0.0141,
+        "index": -0.0106,
+        "thumb": -0.01
+      },
+      "dbend_r2": -0.012614521144648982,
+      "dpressure_r2_par_region": {
+        "pinky": -0.0131,
+        "ring": -0.013,
+        "middle": -0.0073,
+        "index": -0.0102,
+        "thumb": -0.0097,
+        "palm": -0.02
+      },
+      "dpressure_r2": -0.012219273306915782,
+      "camera_r2": {
+        "dy": -0.0086,
+        "dx": 0.0059,
+        "|shift|": -0.0025,
+        "|Δpixel|": -0.0065
+      },
+      "contact_onset_auroc_par_region": {
+        "pinky": 0.49,
+        "ring": 0.5046,
+        "middle": 0.4909,
+        "index": 0.5128,
+        "thumb": 0.4897,
+        "palm": 0.4882
+      },
+      "contact_onset_auroc": 0.4960505780431818,
+      "contact_offset_auroc_par_region": {
+        "pinky": 0.4778,
+        "ring": 0.4724,
+        "middle": 0.4917,
+        "index": 0.5026,
+        "thumb": 0.4918,
+        "palm": 0.5
+      },
+      "contact_offset_auroc": 0.4893729918153072,
+      "ratio_doigts_sur_camera": -12.614521144648982
+    }
+  },
+  "dictionnaire": {
+    "eta_squared": {
+      "dbend_par_doigt": {
+        "pinky": 0.0313,
+        "ring": 0.0301,
+        "middle": 0.0251,
+        "index": 0.0151,
+        "thumb": 0.021
+      },
+      "dbend_total": 0.038348321548996006,
+      "camera_shift": 0.2785447505976019,
+      "pixel_change": 0.453346046873072
+    },
+    "nmi": {
+      "flexion_totale (ferme/immobile/ouvre)": 0.0144,
+      "contact (rien/début/fin/les deux)": 0.0046,
+      "camera (quartiles)": 0.1322,
+      "flexion_pinky": 0.0097,
+      "flexion_ring": 0.0112,
+      "flexion_middle": 0.0081,
+      "flexion_index": 0.0069,
+      "flexion_thumb": 0.0075
+    },
+    "entropie_codes_bits": 2.9302252239752375,
+    "codes_utilises": 8,
+    "codebook_size": 8
+  },
+  "interventions": {
+    "image_entropie_energie": 0.8377358913421631,
+    "image_part_top10_patchs": 0.43204814195632935,
+    "image_corr_energie_mouvement": 0.498096764087677,
+    "controlabilite_visuelle": 0.6392025947570801,
+    "controlabilite_tactile": 0.14062191545963287,
+    "controlabilite_tactile_par_doigt": {
+      "pinky": 0.14259999990463257,
+      "ring": 0.13189999759197235,
+      "middle": 0.13760000467300415,
+      "index": 0.13420000672340393,
+      "thumb": 0.1573999971151352
+    },
+    "rang_code_infere_pixels": {
+      "moyen": 2.4921875,
+      "top1": 0.4375,
+      "hasard": 4.5
+    },
+    "rang_code_infere_flexion": {
+      "moyen": 3.9951171875,
+      "top1": 0.16796875,
+      "hasard": 4.5
+    },
+    "erreur_flexion_code_infere": 0.04651632159948349,
+    "erreur_flexion_meilleur_code": 0.04022705927491188
+  },
+  "attention": {
+    "couche_0": {
+      "entropy": 0.5248548984527588,
+      "top10": 0.9005839824676514,
+      "motion_corr": 0.018094629049301147
+    },
+    "couche_1": {
+      "entropy": 0.5565917491912842,
+      "top10": 0.8452063798904419,
+      "motion_corr": 0.015493224374949932
+    },
+    "couche_2": {
+      "entropy": 0.718703031539917,
+      "top10": 0.6435965299606323,
+      "motion_corr": 0.04666689783334732
+    },
+    "couche_3": {
+      "entropy": 0.8258593082427979,
+      "top10": 0.48974886536598206,
+      "motion_corr": 0.17761674523353577
+    },
+    "couche_4": {
+      "entropy": 0.8677167892456055,
+      "top10": 0.4177682399749756,
+      "motion_corr": 0.11774197220802307
+    },
+    "couche_5": {
+      "entropy": 0.7721964716911316,
+      "top10": 0.5697116851806641,
+      "motion_corr": 0.10600189864635468
+    },
+    "couche_6": {
+      "entropy": 0.7889202833175659,
+      "top10": 0.5480400919914246,
+      "motion_corr": 0.06960001587867737
+    },
+    "couche_7": {
+      "entropy": 0.8446694612503052,
+      "top10": 0.45998716354370117,
+      "motion_corr": 0.1505030393600464
+    },
+    "couche_8": {
+      "entropy": 0.7286897897720337,
+      "top10": 0.6217852830886841,
+      "motion_corr": 0.11049167066812515
+    },
+    "couche_9": {
+      "entropy": 0.8140432834625244,
+      "top10": 0.5119224786758423,
+      "motion_corr": 0.13271071016788483
+    },
+    "couche_10": {
+      "entropy": 0.8042086958885193,
+      "top10": 0.5179821252822876,
+      "motion_corr": 0.10124483704566956
+    },
+    "couche_11": {
+      "entropy": 0.7793792486190796,
+      "top10": 0.5470564961433411,
+      "motion_corr": 0.13232651352882385
+    },
+    "couche_12": {
+      "entropy": 0.7553285360336304,
+      "top10": 0.5960338115692139,
+      "motion_corr": 0.15913832187652588
+    },
+    "couche_13": {
+      "entropy": 0.8649794459342957,
+      "top10": 0.42245399951934814,
+      "motion_corr": 0.10147812962532043
+    },
+    "couche_14": {
+      "entropy": 0.8473384380340576,
+      "top10": 0.45935261249542236,
+      "motion_corr": 0.1672481894493103
+    },
+    "couche_15": {
+      "entropy": 0.896888792514801,
+      "top10": 0.37392669916152954,
+      "motion_corr": 0.09332575649023056
+    },
+    "couche_16": {
+      "entropy": 0.8591232299804688,
+      "top10": 0.43667638301849365,
+      "motion_corr": 0.1372455507516861
+    },
+    "couche_17": {
+      "entropy": 0.8144595623016357,
+      "top10": 0.4894656538963318,
+      "motion_corr": 0.09422716498374939
+    }
+  }
+}

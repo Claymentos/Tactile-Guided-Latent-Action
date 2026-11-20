@@ -1,6 +1,7 @@
 import torch
 
 from torch import nn
+from einops import rearrange
 from einops.layers.torch import Rearrange
 from abc import ABC, abstractmethod
 
@@ -41,6 +42,7 @@ class Identity(Extractor):
         assert image_height % patch_height == 0 and image_width % patch_width == 0, 'Image dimensions must be divisible by the patch size.'
 
         patch_dim = channels * patch_height * patch_width
+        self.patch_height, self.patch_width = patch_height, patch_width
 
         self.to_patch_embedding = nn.Sequential(
             Rearrange('b t c (h p1) (w p2) -> b t (h w) (p1 p2 c)', p1=patch_height, p2=patch_width),
@@ -52,7 +54,7 @@ class Identity(Extractor):
         self.to_image = nn.Sequential(
             nn.Linear(model_dim, channels * patch_height * patch_width),
             Rearrange('b t (nh nw) (p1 p2 c) -> b t c (nh p1) (nw p2)',
-                      p1=patch_size, p2=patch_width, c=channels, nh=image_height//patch_height, nw=image_width//patch_width),
+                      p1=patch_height, p2=patch_width, c=channels, nh=image_height//patch_height, nw=image_width//patch_width),
         )
 
         self.loss_fn = loss_fn
@@ -63,6 +65,11 @@ class Identity(Extractor):
         returns: torch.Tensor, shape (batch_size, seq_len, num_patches, model_dim)
         """
         return self.to_patch_embedding(x)
+
+
+    def patchify(self, images):
+        """(B, T, C, H, W) -> (B, T, P, p1*p2*C), pixels bruts (sans LayerNorm ni projection)."""
+        return rearrange(images, 'b t c (h p1) (w p2) -> b t (h w) (p1 p2 c)', p1=self.patch_height, p2=self.patch_width)
     
     def _post_process(self, x):
         """
@@ -73,8 +80,22 @@ class Identity(Extractor):
         """
         image = self.to_image(x)
         return nn.functional.sigmoid(image)
+
+    def compute_patch_loss(self, images, previous_images, reconstruction, threshold):
+        """MSE calculée uniquement sur les patchs qui changent entre t et t+1 ; les patchs statiques sont ignorés.
+
+        images, previous_images : frames t+1 et t réelles ; reconstruction : frames t+1 prédites. (B, T, C, H, W) dans [0, 1].
+        Un patch change si sa différence absolue moyenne entre t et t+1 dépasse threshold.
+        Renvoie la loss (scalaire, 0 si aucun patch ne change) et le masque (B, T, P) des patchs qui changent.
+        """
+        target = self.patchify(images)
+        error = (self.patchify(reconstruction) - target).pow(2).mean(-1)
+        change = (target - self.patchify(previous_images)).abs().mean(-1)
+        mask = (change > threshold).to(error.dtype)
+        loss = (mask * error).sum() / mask.sum().clamp(min=1)
+        return loss, mask.bool()
     
-    def compute_loss(self, logits, images, features):
+    def compute_loss(self, logits, images, features, previous_images=None, threshold=None):
         """
         Compute the reconstruction loss between the decoder output and input.
         For this identity encoder, it is simply the MSE loss between the reconstruction and the input images.
@@ -88,5 +109,8 @@ class Identity(Extractor):
                  torch.Tensor, shape (batch_size, seq_len, channels, height, width) - reconstructed images
         """
         reconstruction = self._post_process(logits)
-        recon_loss = self.loss_fn(reconstruction, images)
-        return recon_loss, reconstruction
+        if threshold is None or previous_images is None:
+            loss = self.loss_fn(reconstruction, images)
+        else:
+            loss, _ = self.compute_patch_loss(images, previous_images, reconstruction, threshold)
+        return loss, reconstruction
