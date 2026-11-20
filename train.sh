@@ -1,7 +1,7 @@
 #!/bin/sh
-#SBATCH --job-name=lam_egotouch_cycle_consistency
-#SBATCH --output=logs/lam_egotouch_cycle_consistency.%j.out
-#SBATCH --error=logs/lam_egotouch_cycle_consistency.%j.err 
+#SBATCH --job-name=lam_egotouch_patches_loss_threshold_0_03
+#SBATCH --output=logs/lam_egotouch_patches_loss_threshold_0_03.%j.out
+#SBATCH --error=logs/lam_egotouch_patches_loss_threshold_0_03.%j.err 
 
 #SBATCH -A iyg@h100  # uli remplace par ton nom de projet 
 #SBATCH -C h100
