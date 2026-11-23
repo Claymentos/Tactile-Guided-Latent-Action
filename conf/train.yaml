@@ -44,7 +44,7 @@ trainer:
   precision: bf16-mixed
   logger:
     _target_: lightning.pytorch.loggers.WandbLogger
-    name: lam_egotouch_patches_loss_threshold_0_03
+    name: lam_egotouch
     save_dir: ${trainer.default_root_dir}
     mode: offline 
     project: LAM

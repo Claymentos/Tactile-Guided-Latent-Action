@@ -29,4 +29,4 @@ model:
   num_register_tokens: 0
   register_dropout_mean: 0.0
   register_dropout_std: 0.0
-  recon_change_threshold: 0.03     # null : MSE sur toute l'image ; un nombre : MSE des seuls patchs dont |frame t+1 - frame t| moyen dépasse ce seuil (pixels dans [0, 1], extracteur identity)
+  recon_change_threshold: null     # null : MSE sur toute l'image ; un nombre : MSE des seuls patchs dont |frame t+1 - frame t| moyen dépasse ce seuil (pixels dans [0, 1], extracteur identity)
