@@ -378,7 +378,7 @@ class LAMTraining(L.LightningModule):
     def preprocess(self, batch):
         if isinstance(batch, (list, tuple)):          # EgoTouch: (videos, tactile, mask, rel_t, metadata)
             videos = batch[0]
-            batch = {"images": videos["chest"] if isinstance(videos, dict) else videos}
+            batch = {"images": next(iter(videos.values())) if isinstance(videos, dict) else videos}  # the one camera loaded
         elif 'obs' in batch:
             batch["images"] = torch.flip(batch['obs']['agentview_rgb'], dims=(-2,)) / 255.0
         return batch

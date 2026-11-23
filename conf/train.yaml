@@ -1,13 +1,24 @@
 defaults:
-  - _self_
   - algo: lam_spatial_decoder
   - algo/quantization: vq
   - algo/feature_extractor: identity
   - algo/perceptual_regularizer: none
   - data: egotouch
   - metrics: metrics
+  - _self_                  # last: the values below override the groups above
 
 checkpoint_path: null       # Set to resume a training run
+
+algo:
+  feature_extractor:
+    model:
+      image_size: [128, 160]       # EgoTouch frames are 4:3: 128 x 171, cropped to whole 16-pixel patches
+
+data:
+  data_module:
+    img_size: ${algo.feature_extractor.model.image_size.0}
+    patch_size: ${algo.feature_extractor.model.patch_size}
+    normalize: false               # LAM takes frames in [0, 1]
 
 lightning_module: 
   _target_: lam.lightning.lam.LAMTraining
