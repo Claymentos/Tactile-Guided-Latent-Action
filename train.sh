@@ -3,7 +3,7 @@
 #SBATCH --output=logs/lam_egotouch_patches_loss_threshold_0_03.%j.out
 #SBATCH --error=logs/lam_egotouch_patches_loss_threshold_0_03.%j.err 
 
-#SBATCH -A yfl@h100  # uli remplace par ton nom de projet 
+#SBATCH -A uli@h100  # uli remplace par ton nom de projet 
 #SBATCH -C h100
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
