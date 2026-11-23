@@ -33,6 +33,10 @@ lightning_module:
   warmup_ratio: 0.05
   scheduler_max_steps: ${trainer.max_steps}
   use_task: true
+  cycle_consistency_batches: 8     # batches de validation pour le test A -> B -> A (val/cycle/*) ; 0 le désactive
+  num_logged_samples: 4            # paires (A, B) dans val/cycle_video
+  arrow_scale: 3.0                 # agrandissement des flèches de mouvement des mains
+  finger_focus_batches: 8          # batches de validation : où regarde LAP (val/focus/*) + val/finger_attention_video
 
 trainer:
   _target_: lightning.Trainer

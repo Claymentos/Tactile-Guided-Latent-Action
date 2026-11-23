@@ -25,3 +25,6 @@ model:
   probe_weight: 1.0                # sonde sur z détaché
   z_action_weight: 0.0             # garde-fou hors papier : actions réelles prédites depuis z (gradient vers LAP)
   variance_weight: 0.0             # garde-fou hors papier : variance VICReg sur z
+  forward_probe_weight: 1.0        # sonde de dynamique directe (entrées détachées) pour le test de cycle ; 0 : pas de cycle
+  forward_probe_dim: 256
+  forward_probe_layers: 4

@@ -286,6 +286,10 @@ class EgoDexDataset(Dataset):
         metadata['indices'] = torch.Tensor(np.array(indices))
 
         curr_frames, actions, heatmaps, all_valid_kp = self.process_data(frames, annotations, indices)
+        # repère caméra de la première frame (celui des actions) -> repère caméra de chaque frame, pour projeter les
+        # points des mains sur l'image t (lam.jala_viz.project)
+        cameras = np.array([annotations['transforms']['camera'][i] for i in indices], dtype=np.float64)   # (T, 4, 4)
+        metadata['cam0_to_camt'] = torch.from_numpy(np.linalg.inv(cameras) @ cameras[0]).float()
         annotations.close()
 
         return curr_frames, actions, rel_t, heatmaps, all_valid_kp, metadata

@@ -37,6 +37,17 @@ from torch import nn
 NUM_HAND_KEYPOINTS = 42          # 21 gauche puis 21 droite (lam.datasets.egodex.dataset.ALL_KEYS)
 POSES_PER_FRAME = 44             # 42 points + position caméra + rotation caméra
 METERS_TO_CM = 100.0
+WRIST = (0, 21)                                         # poignet gauche, poignet droit
+FINGERTIPS = tuple(o + k for o in (0, 21) for k in (4, 8, 12, 16, 20))
+FINGERS = tuple(i for i in range(NUM_HAND_KEYPOINTS) if i not in WRIST)
+
+
+def finger_motion(motion):
+    """Déplacement (..., 42, 3) -> déplacement des 40 points des doigts relatif au poignet de leur main (..., 40, 3) :
+    l'articulation des doigts, sans la translation / rotation globale de la main portée par le poignet."""
+    wrist = torch.cat([motion[..., :1, :].expand(*motion.shape[:-2], 20, 3),
+                       motion[..., 21:22, :].expand(*motion.shape[:-2], 20, 3)], dim=-2)
+    return motion[..., FINGERS, :] - wrist
 
 
 def hand_motion_target(actions):
@@ -72,11 +83,15 @@ class PerceiverLayer(nn.Module):
         self.self_attention = nn.MultiheadAttention(dim, num_heads, dropout=dropout, batch_first=True)
         self.norm_mlp = nn.LayerNorm(dim)
         self.mlp = FeedForward(dim, 4 * dim, dropout=dropout)
+        self.keep_attention, self.attention = False, None
 
     def forward(self, queries, x):
         x = self.norm_x(x)
         q = self.norm_q(queries)
-        queries = queries + self.cross_attention(q, x, x, need_weights=False)[0]
+        attended, weights = self.cross_attention(q, x, x, need_weights=self.keep_attention, average_attn_weights=True)
+        if self.keep_attention:
+            self.attention = weights                                     # (B, K, N), moyenne sur les têtes
+        queries = queries + attended
         q = self.norm_self(queries)
         queries = queries + self.self_attention(q, q, q, need_weights=False)[0]
         return queries + self.mlp(self.norm_mlp(queries))
@@ -216,6 +231,33 @@ class ActionHead(nn.Module):
         return self.net(tokens.flatten(-2)).unflatten(-1, (self.num_keypoints, 3))
 
 
+class ForwardProbe(nn.Module):
+    """Sonde de dynamique directe : (features DINO normalisées de v_t, actions latentes z_t) -> features normalisées de
+    v_t+1. Entraînée sur des entrées détachées, elle n'agit pas sur JALA (qui n'a pas de générateur) ; elle sert au test
+    de cycle-consistance, où il faut appliquer les actions d'une vidéo à une autre. Prédit un résidu sur les patchs."""
+
+    def __init__(self, feature_dim, latent_dim, grid_size, dim=256, n_layer=4, num_heads=8):
+        super().__init__()
+        self.input_projection = nn.Linear(feature_dim, dim)
+        self.latent_projection = nn.Linear(latent_dim, dim)
+        self.type_embedding = nn.Parameter(torch.randn(2, dim) * 0.02)
+        self.register_buffer('position_embedding', sincos_2d(grid_size, dim), persistent=False)
+        self.layers = nn.ModuleList([nn.TransformerEncoderLayer(dim, num_heads, 4 * dim, 0.0, activation='gelu',
+                                                                batch_first=True, norm_first=True) for _ in range(n_layer)])
+        self.norm = nn.LayerNorm(dim)
+        self.output = nn.Linear(dim, feature_dim)
+        nn.init.zeros_(self.output.weight), nn.init.zeros_(self.output.bias)      # départ : v_t+1 = v_t
+
+    def forward(self, features, z):
+        """features (N, P, F) normalisées ; z (N, K, latent_dim) -> features normalisées prédites (N, P, F)."""
+        P = features.shape[1]
+        x = torch.cat([self.input_projection(features) + self.position_embedding + self.type_embedding[0],
+                       self.latent_projection(z) + self.type_embedding[1]], dim=1)
+        for layer in self.layers:
+            x = layer(x)
+        return features + self.output(self.norm(x[:, :P]))
+
+
 class JALA(nn.Module):
     def __init__(self,
                  feature_extractor: nn.Module,
@@ -241,7 +283,10 @@ class JALA(nn.Module):
                  labeled_fraction: float = 1.0,
                  probe_weight: float = 1.0,
                  z_action_weight: float = 0.0,
-                 variance_weight: float = 0.0):
+                 variance_weight: float = 0.0,
+                 forward_probe_weight: float = 1.0,
+                 forward_probe_dim: int = 256,
+                 forward_probe_layers: int = 4):
         """
         num_queries : K actions latentes par transition (moitié main gauche, moitié main droite)
         pair_fusion : combinaison des deux frames dans LAP / LSP, voir PerceiverBackbone
@@ -257,6 +302,8 @@ class JALA(nn.Module):
                           les queries de LAP et ancre z sur le mouvement réel, y compris sa part imprévisible depuis le
                           passé, que L_align seule pousse à oublier
         variance_weight : terme de variance VICReg sur z (std par dimension sur le batch >= 1), sans annotation
+        forward_probe_weight : poids de la sonde de dynamique directe (ForwardProbe, entrées détachées : n'agit pas sur
+                               JALA) nécessaire au test de cycle-consistance ; 0 la désactive (pas de cycle)
         """
         super().__init__()
         assert num_queries % 2 == 0, "num_queries doit être pair (moitié par main)"
@@ -287,6 +334,9 @@ class JALA(nn.Module):
         self.action_head = ActionHead(dim, num_queries)
         self.probe = ActionHead(dim, num_queries)
         self.z_action_head = ActionHead(dim, num_queries) if z_action_weight > 0 else None
+        self.forward_probe = ForwardProbe(feature_dim, dim, grid_size, forward_probe_dim, forward_probe_layers) \
+            if forward_probe_weight > 0 else None
+        self.forward_probe_weight = forward_probe_weight
 
         self.num_patches = num_patches
         self.ema_decay = ema_decay
@@ -356,6 +406,15 @@ class JALA(nn.Module):
             output['loss_variance'] = loss_variance
             loss = loss + self.variance_weight * loss_variance
 
+        if self.forward_probe is not None:
+            normed = F.layer_norm(features, features.shape[-1:])
+            B, S = z.shape[:2]
+            predicted = self.forward_probe(normed[:, :-1].flatten(0, 1), z.detach().flatten(0, 1))
+            loss_forward_probe = F.mse_loss(predicted, normed[:, 1:].flatten(0, 1))
+            output.update(loss_forward_probe=loss_forward_probe,
+                          forward_probe_copy=F.mse_loss(normed[:, :-1], normed[:, 1:]).detach())   # référence : v_t+1 = v_t
+            loss = loss + self.forward_probe_weight * loss_forward_probe
+
         if actions is not None:
             target = hand_motion_target(actions.float())                                     # (B, S, 42, 3) cm
             if labeled is None:
@@ -365,7 +424,8 @@ class JALA(nn.Module):
             error = (prediction - target).abs().mean((1, 2, 3))                              # (B,)
             weight = labeled.float()
             loss_action = (weight * error).sum() / weight.sum().clamp(min=1)
-            probe_error = (self.probe(z.detach()) - target).abs()
+            probe_prediction = self.probe(z.detach())
+            probe_error = (probe_prediction - target).abs()
             loss_probe = probe_error.mean()
             loss = loss + self.action_weight * loss_action + self.probe_weight * loss_probe
             if self.z_action_head is not None:
@@ -373,6 +433,11 @@ class JALA(nn.Module):
                 loss_z_action = (weight * z_error).sum() / weight.sum().clamp(min=1)
                 output['loss_z_action'] = loss_z_action
                 loss = loss + self.z_action_weight * loss_z_action
+            relative = finger_motion(target)
+            output.update(probe_finger_mae=(finger_motion(probe_prediction) - relative).abs().mean().detach(),
+                          finger_motion_zero=relative.abs().mean().detach(),           # référence : doigts figés
+                          probe_wrist_mae=(probe_prediction[..., WRIST, :] - target[..., WRIST, :]).abs().mean().detach(),
+                          wrist_motion_zero=target[..., WRIST, :].abs().mean().detach())
             output.update(loss_action=loss_action, loss_probe=loss_probe, action_prediction=prediction,
                           action_target=target, labeled_frac=weight.mean(),
                           action_mae=error.mean().detach(),                                 # sur tous les clips, en cm
@@ -402,3 +467,127 @@ class JALA(nn.Module):
             # < 1 : h est plus proche de son propre z que de celui d'un autre clip ; ~1 : alignement non spécifique
             metrics['align_specificity'] = (hn - zn).abs().mean() / metrics['loss_align_shuffled'].clamp(min=1e-8)
         return metrics
+
+    @torch.no_grad()
+    def lap_attention(self, features):
+        """Attention croisée des queries de LAP sur les patchs, moyennée sur les têtes et les couches Perceiver :
+        (B, T-1, K, P), chaque query sommant à 1 sur les patchs (avec pair_fusion='sequence', les deux frames sont
+        additionnées)."""
+        layers = self.lap.backbone.layers
+        for layer in layers:
+            layer.keep_attention = True
+        try:
+            self.latent_actions(features)
+            attention = torch.stack([layer.attention.float() for layer in layers]).mean(0)    # (B(T-1), K, N)
+        finally:
+            for layer in layers:
+                layer.keep_attention, layer.attention = False, None
+        P = self.num_patches
+        if attention.shape[-1] == 2 * P:
+            attention = attention[..., :P] + attention[..., P:]
+        B, T = features.shape[:2]
+        return attention.unflatten(0, (B, T - 1))
+
+    @torch.no_grad()
+    def cycle_consistency(self, images_a, images_b, actions_a=None):
+        """Cycle A -> B -> A des actions latentes (figure 5 b de arXiv 2601.05230), adapté à JALA.
+
+        1. z_A = LAP(A_t, A_t+1)
+        2. B'_t+1 = ForwardProbe(B_t, z_A,t) : les actions de A appliquées à la scène B (un pas depuis la vraie frame B_t)
+        3. z_cycle = LAP(B_t, B'_t+1)
+        4. on décode z_A, z_cycle et z_hasard (z d'un autre clip du batch) en mouvement des mains avec la sonde, et on
+           compare au vrai mouvement de A ; et on prédit A_t+1 avec la ForwardProbe pour chacun.
+        Renvoie les tenseurs nécessaires aux métriques et aux visualisations.
+        """
+        assert self.forward_probe is not None, "cycle-consistance : forward_probe_weight > 0 nécessaire"
+        fa, fb = self.extract_features(images_a), self.extract_features(images_b)
+        na, nb = F.layer_norm(fa, fa.shape[-1:]), F.layer_norm(fb, fb.shape[-1:])
+        B, T = fa.shape[:2]
+        z_a = self.latent_actions(fa)                                                      # (B, S, K, D)
+        transferred = self.forward_probe(nb[:, :-1].flatten(0, 1), z_a.flatten(0, 1)).unflatten(0, (B, T - 1))
+        # LAP sur (B_t, B'_t+1) ; les features normalisées passent telles quelles (LayerNorm idempotente)
+        z_cycle = self.lap(nb[:, :-1].flatten(0, 1), transferred.flatten(0, 1)).unflatten(0, (B, T - 1))
+        z_random = z_a[torch.roll(torch.arange(B, device=z_a.device), max(1, B // 3))]
+        latents = dict(original=z_a, cycle=z_cycle, random=z_random)
+
+        out = dict(z_original=z_a, z_cycle=z_cycle, transferred=transferred, features_b=nb,
+                   z_cosine_cycle=F.cosine_similarity(z_a, z_cycle, dim=-1).mean((1, 2)),
+                   z_cosine_random=F.cosine_similarity(z_a, z_random, dim=-1).mean((1, 2)),
+                   transfer_feature_error=((transferred - nb[:, 1:]) ** 2).mean((1, 2, 3)))  # B' vs vraie B_t+1
+        for name, z in latents.items():
+            predicted = self.forward_probe(na[:, :-1].flatten(0, 1), z.flatten(0, 1)).unflatten(0, (B, T - 1))
+            out[f'feature_error_{name}'] = ((predicted - na[:, 1:]) ** 2).mean((1, 2, 3))      # (B,)
+            out[f'hands_{name}'] = self.probe(z)                                               # (B, S, 42, 3) cm
+        if actions_a is not None:
+            target = hand_motion_target(actions_a.float())
+            out['hands_target'] = target
+            for name in latents:
+                out[f'hand_error_{name}'] = (out[f'hands_{name}'] - target).abs().mean((1, 2, 3))
+        return out
+
+
+CYCLE_METRICS = ('hand_error_original', 'hand_error_cycle', 'hand_error_random', 'feature_error_original',
+                 'feature_error_cycle', 'feature_error_random', 'z_cosine_cycle', 'z_cosine_random',
+                 'transfer_feature_error')
+
+
+def cycle_summary(means):
+    """Moyennes des métriques par clip -> indicateurs. hausse_relative : (cycle - origine) / (hasard - origine), 0 =
+    transfert parfait, 1 = pas mieux qu'une action d'un autre clip."""
+    summary = dict(means)
+    for space in ('hand', 'feature'):
+        o, c, r = (means.get(f'{space}_error_{k}') for k in ('original', 'cycle', 'random'))
+        if o is None:
+            continue
+        summary[f'{space}_hausse_erreur'] = c - o
+        summary[f'{space}_hausse_relative'] = (c - o) / (r - o) if r - o > 0 else float('nan')
+    return summary
+
+
+def keypoint_patch_masks(pixels, valid, grid, patch_size, dilation=0):
+    """Pixels (..., 42, 2) et validité (..., 42) -> masques de patchs (..., P) pour la main entière, les doigts, les
+    bouts des doigts, le poignet, la main gauche et la main droite : un patch est marqué s'il contient un point
+    (élargi de `dilation` patchs)."""
+    gh, gw = grid
+    col = (pixels[..., 0] / patch_size).floor().long().clamp(0, gw - 1)
+    row = (pixels[..., 1] / patch_size).floor().long().clamp(0, gh - 1)
+    index = row * gw + col                                                                  # (..., 42)
+
+    def mask(points):
+        m = torch.zeros(*pixels.shape[:-2], gh * gw, device=pixels.device)
+        idx, ok = index[..., list(points)], valid[..., list(points)].float()
+        m.scatter_add_(-1, idx, ok)
+        m = (m > 0).float()
+        if dilation:
+            shape = m.shape
+            m = F.max_pool2d(m.reshape(-1, 1, gh, gw), 2 * dilation + 1, 1, dilation).reshape(shape)
+        return m
+
+    return dict(hand=mask(range(42)), fingers=mask(FINGERS), fingertips=mask(FINGERTIPS), wrist=mask(WRIST),
+                left=mask(range(21)), right=mask(range(21, 42)))
+
+
+def attention_focus(attention, masks):
+    """attention (B, S, K, P), masques (B, S, P) -> par région : masse d'attention (moyenne des queries), surface
+    (part des patchs) et lift = masse / surface (1 = pas mieux qu'une attention uniforme). Les queries sont séparées en
+    deux groupes (première moitié : tête gauche, seconde : tête droite) pour mesurer la spécialisation par main.
+    Renvoie des sommes et un compte, pour une moyenne sur plusieurs batches."""
+    K = attention.shape[2]
+    mean = attention.mean(2)                                                                # (B, S, P)
+    has_hand = masks['hand'].sum(-1) > 0                                                    # transitions avec une main visible
+    out = {}
+    for region in ('hand', 'fingers', 'fingertips', 'wrist'):
+        m = masks[region]
+        mass, area = (mean * m).sum(-1), m.mean(-1)
+        ok = has_hand & (area > 0)
+        out[f'{region}_mass'] = (mass[ok].sum(), ok.sum())
+        out[f'{region}_lift'] = ((mass[ok] / area[ok]).sum(), ok.sum())
+    left_q, right_q = attention[:, :, :K // 2].mean(2), attention[:, :, K // 2:].mean(2)
+    both = (masks['left'].sum(-1) > 0) & (masks['right'].sum(-1) > 0)
+    # queries gauches : part de leur attention sur la main gauche parmi les deux mains (0.5 = pas de spécialisation)
+    for name, q, own, other in (('left_queries_own_hand', left_q, 'left', 'right'),
+                                ('right_queries_own_hand', right_q, 'right', 'left')):
+        a, b = (q * masks[own]).sum(-1), (q * masks[other]).sum(-1)
+        share = a / (a + b).clamp(min=1e-8)
+        out[name] = (share[both].sum(), both.sum())
+    return out
