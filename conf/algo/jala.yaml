@@ -28,3 +28,12 @@ model:
   forward_probe_weight: 1.0        # sonde de dynamique directe (entrées détachées) pour le test de cycle ; 0 : pas de cycle
   forward_probe_dim: 256
   forward_probe_layers: 4
+  # Choix papier / version compacte (voir conf/algo/jala_paper.yaml pour la configuration du papier)
+  predictor: transformer           # transformer : LatentPredictor compact ; vlm : InternVL3-2B comme le papier
+  action_objective: regression     # regression : loss_action L1 ; mcp : tokens GRVQ masqués (motion_tokenizer_path)
+  motion_tokenizer_path: null
+  mcp_later_mask_ratio: 0.05
+  vlm_path: OpenGVLab/InternVL3-2B-hf
+  vlm_freeze_vision: true
+  vlm_gradient_checkpointing: true
+  vlm_image_size: 448

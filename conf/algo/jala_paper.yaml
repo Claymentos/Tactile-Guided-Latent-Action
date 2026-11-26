@@ -1,0 +1,28 @@
+# JALA au plus près du papier (arXiv 2602.21736) : prédicteur InternVL3-2B, loss MCP sur des tokens de mouvement GRVQ,
+# L1 brute entre h (couche 19/28) et z, sans garde-fous. Prérequis : le tokenizer de mouvement
+# (python train.py --config-name train_motion_tokenizer_egodex), dont le checkpoint va dans motion_tokenizer_path.
+# Non précisé par le papier, gardé de la version compacte : largeur des Perceivers (dim), fusion des deux frames
+# (pair_fusion), représentation du mouvement (42 points 3D EgoDex au lieu de MANO).
+defaults:
+  - jala
+  - _self_
+
+model:
+  predictor: vlm
+  action_objective: mcp
+  motion_tokenizer_path: ???       # runs/<run>/checkpoints/<...>.ckpt de train_motion_tokenizer_egodex
+  num_queries: 128                 # = tokens par chunk du tokenizer (64 poignet + 64 doigts, comme le papier)
+  align_layer: 19                  # h = couche 19 sur 28 du LLM
+  align_norm: false                # L1 brute du papier
+  align_weight: 0.5                # λ
+  action_weight: 1.0               # poids de L_MCP (1_labeled · L_MCP)
+  mcp_later_mask_ratio: 0.05
+  dim: 512                         # largeur des Perceivers (non précisée) ; z et h sont dans l'espace du VLM (1536)
+  perceiver_layers: 2
+  ema_decay: 0.999
+  z_action_weight: 0.0
+  variance_weight: 0.0
+  num_tasks: 0                     # l'instruction (llm_description EgoDex) remplace la tâche
+  vlm_path: OpenGVLab/InternVL3-2B-hf   # hors ligne : dossier local du modèle (ou HF_HOME avec le modèle en cache)
+  vlm_freeze_vision: true          # encodeur visuel figé, LLM entraîné
+  vlm_gradient_checkpointing: true

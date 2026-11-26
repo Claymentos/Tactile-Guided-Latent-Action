@@ -13,14 +13,25 @@ dupliquée (v_t, v_t). Pour que LAP et LSP partagent un espace latent sans s'eff
   - les *queries* sont apprises par le gradient côté LAP, et LSP les suit en EMA :
         θ_b^LAP <- α θ_b^LAP + (1 - α) θ_b^LSP,      θ_q^LSP <- α θ_q^LSP + (1 - α) θ_q^LAP,      α = 0.999.
 
-Adaptations, faute de VLM dans ce repo :
-  - le VLM est remplacé par LatentPredictor, un petit transformer causal dans le temps : à la transition t, il voit les
-    tokens d'état LSP des frames 0..t (et la tâche EgoDex, à la place de l'instruction), et K queries de mouvement dont
-    l'état caché à la couche align_layer est h_t ;
-  - la loss sur les tokens de mouvement GRVQ (MCP) est remplacée par une régression L1 du déplacement 3D des 42 points
-    des mains EgoDex entre t et t+δ (en cm, repère caméra de la première frame), prédit depuis la sortie du prédicteur ;
-  - align_norm (par défaut) normalise h et z (LayerNorm sans paramètres) avant la L1 : sans le VLM pré-entraîné qui
-    fixe l'échelle de h, les deux côtés pourraient sinon rétrécir ensemble vers 0. align_norm=False donne la L1 brute.
+Deux options indépendantes choisissent entre la version du papier et la version compacte :
+  predictor
+    'vlm'         : le papier. InternVL3-2B (lam.jala_vlm.VLMPredictor) voit l'instruction, la frame initiale v_0 et les
+                    tokens LSP(v_0, v_0), puis les tokens de mouvement de chaque chunk ; h = couche 19 sur 28.
+    'transformer' : LatentPredictor, un petit transformer causal dans le temps : à la transition t, il voit les patchs
+                    DINO poolés et les tokens d'état LSP des frames 0..t (et la tâche EgoDex, à la place de
+                    l'instruction), et K tokens de mouvement dont l'état caché à la couche align_layer est h_t.
+  action_objective
+    'mcp'         : le papier (motion-token prediction, éq. 2). Les chunks de mouvement des mains sont tokenisés par un
+                    tokenizer GRVQ figé (lam.motion_tokenizer, appris avant), les tokens entrent dans le prédicteur,
+                    masqués selon le masquage hybride du papier (un chunk cible masqué à un taux aléatoire, les chunks
+                    précédents intacts, les suivants masqués à 5 %), et la cross-entropy porte sur les tokens masqués.
+                    K = nombre de tokens du tokenizer (128 dans le papier). En validation, tout est masqué : h et la
+                    prédiction viennent seulement du passé.
+    'regression'  : version compacte. Les tokens de mouvement sont K queries apprises et la loss est une régression L1
+                    du déplacement 3D des 42 points des mains EgoDex entre t et t+δ (en cm, repère caméra de la
+                    première frame), prédit depuis la sortie du prédicteur.
+align_norm normalise h et z (LayerNorm sans paramètres) avant la L1 : sans le VLM pré-entraîné qui fixe l'échelle de h,
+les deux côtés pourraient sinon rétrécir ensemble vers 0. align_norm=False donne la L1 brute du papier.
 Une sonde (linéaire + MLP) sur z détaché mesure l'information d'action contenue dans les actions latentes, sans agir
 sur elles.
 
@@ -190,13 +201,15 @@ class LatentPredictor(nn.Module):
             mask[0, 1:] = True
         return mask
 
-    def forward(self, states, task_ids=None, visual=None):
+    def forward(self, states, task_ids=None, visual=None, motion_inputs=None):
         """states : (B, S, K, dim) tokens LSP ; task_ids : (B,) ou None (pas de token de tâche) ; visual : features
-        poolées (B, S, Pv, feature_dim) si le prédicteur a des tokens visuels -> h, out (B, S, K, dim)."""
+        poolées (B, S, Pv, feature_dim) si le prédicteur a des tokens visuels ; motion_inputs (B, S, K, dim) :
+        embeddings des tokens de mouvement (MCP), ou None (queries apprises) -> h, out (B, S, K, dim)."""
         B, S, K, D = states.shape
         steps = self.step_embedding(torch.arange(S, device=states.device))[None, :, None]          # (1, S, 1, D)
         state_tokens = self.state_projection(states) + self.type_embedding[0] + steps
-        motion_tokens = self.motion_queries.expand(B, S, K, D) + self.type_embedding[1] + steps
+        motion = self.motion_queries.expand(B, S, K, D) if motion_inputs is None else motion_inputs + self.motion_queries
+        motion_tokens = motion + self.type_embedding[1] + steps
         blocks = [state_tokens, motion_tokens]
         if self.num_visual:
             blocks.insert(0, self.visual_projection(visual) + self.visual_position + self.type_embedding[2] + steps)
@@ -219,16 +232,62 @@ class LatentPredictor(nn.Module):
 
 
 class ActionHead(nn.Module):
-    """K tokens (B, S, K, dim) -> déplacement des 42 points de la main (B, S, 42, 3)."""
+    """K tokens (B, S, K, dim) -> déplacement des 42 points de la main (B, S, 42, 3). Si K x dim dépasse max_input
+    (K = 128 tokens de 1536 avec le VLM), chaque token est d'abord projeté en petite dimension."""
 
-    def __init__(self, dim, num_queries, hidden_dim=1024, num_keypoints=NUM_HAND_KEYPOINTS):
+    def __init__(self, dim, num_queries, hidden_dim=1024, num_keypoints=NUM_HAND_KEYPOINTS, max_input=8192):
         super().__init__()
         self.num_keypoints = num_keypoints
-        self.net = nn.Sequential(nn.LayerNorm(num_queries * dim), nn.Linear(num_queries * dim, hidden_dim), nn.GELU(),
-                                 nn.Linear(hidden_dim, num_keypoints * 3))
+        token_dim = dim if num_queries * dim <= max_input else max(8, max_input // num_queries)
+        self.token_projection = nn.Sequential(nn.LayerNorm(dim), nn.Linear(dim, token_dim)) if token_dim != dim else None
+        self.net = nn.Sequential(nn.LayerNorm(num_queries * token_dim), nn.Linear(num_queries * token_dim, hidden_dim),
+                                 nn.GELU(), nn.Linear(hidden_dim, num_keypoints * 3))
 
     def forward(self, tokens):
+        if self.token_projection is not None:
+            tokens = self.token_projection(tokens)
         return self.net(tokens.flatten(-2)).unflatten(-1, (self.num_keypoints, 3))
+
+
+class MotionTokens(nn.Module):
+    """Entrées et sortie des tokens de mouvement de la loss MCP : embedding des codes GRVQ (une table par partie,
+    poignet / doigts, plus un token [MASK]) et tête de classification sur le codebook de la partie de chaque token."""
+
+    def __init__(self, dim, token_part, codebook_size, num_parts=2):
+        super().__init__()
+        self.codebook_size, self.num_parts = codebook_size, num_parts
+        self.register_buffer('token_part', token_part.clone().long(), persistent=False)            # (K,)
+        self.mask_index = num_parts * codebook_size
+        self.embedding = nn.Embedding(num_parts * codebook_size + 1, dim)
+        nn.init.normal_(self.embedding.weight, std=0.02)
+        self.norm = nn.LayerNorm(dim)
+        self.head = nn.Linear(dim, num_parts * codebook_size)
+
+    def embed(self, tokens, masked):
+        """tokens (B, S, K) indices dans le codebook de leur partie ; masked (B, S, K) booléen -> (B, S, K, dim)."""
+        index = tokens + self.token_part * self.codebook_size
+        return self.embedding(torch.where(masked, torch.full_like(index, self.mask_index), index))
+
+    def logits(self, out):
+        """(B, S, K, dim) -> logits (B, S, K, codebook_size) sur le codebook de la partie de chaque token."""
+        logits = self.head(self.norm(out)).unflatten(-1, (self.num_parts, self.codebook_size))
+        part = self.token_part.view(1, 1, -1, 1, 1).expand(*logits.shape[:3], 1, self.codebook_size)
+        return logits.gather(3, part).squeeze(3)
+
+
+def hybrid_mask(batch_size, steps, num_tokens, later_ratio=0.05, device=None):
+    """Masquage hybride du papier : par clip, un chunk cible tiré au hasard est masqué à un taux aléatoire (au moins un
+    token), les chunks précédents restent intacts et les suivants sont masqués à later_ratio -> (B, S, K) booléen."""
+    target = torch.randint(steps, (batch_size,), device=device)
+    ratio = torch.rand(batch_size, device=device)
+    draw = torch.rand(batch_size, steps, num_tokens, device=device)
+    step = torch.arange(steps, device=device)[None, :, None]
+    target_mask = draw < ratio[:, None, None]
+    forced = torch.zeros_like(target_mask)
+    forced[torch.arange(batch_size, device=device), :, torch.randint(num_tokens, (batch_size,), device=device)] = True
+    target_mask = target_mask | forced
+    t = target[:, None, None]
+    return torch.where(step == t, target_mask, (step > t) & (draw < later_ratio))
 
 
 class ForwardProbe(nn.Module):
@@ -286,8 +345,26 @@ class JALA(nn.Module):
                  variance_weight: float = 0.0,
                  forward_probe_weight: float = 1.0,
                  forward_probe_dim: int = 256,
-                 forward_probe_layers: int = 4):
+                 forward_probe_layers: int = 4,
+                 predictor: str = 'transformer',
+                 action_objective: str = 'regression',
+                 motion_tokenizer_path: str = None,
+                 mcp_later_mask_ratio: float = 0.05,
+                 vlm_path: str = 'OpenGVLab/InternVL3-2B-hf',
+                 vlm_freeze_vision: bool = True,
+                 vlm_gradient_checkpointing: bool = True,
+                 vlm_image_size: int = 448):
         """
+        predictor : 'transformer' (LatentPredictor) ou 'vlm' (InternVL3, lam.jala_vlm.VLMPredictor, comme le papier) ;
+                    avec 'vlm', align_layer est la couche du LLM (19 dans le papier), dim reste la largeur des
+                    Perceivers et z / h ont la dimension du VLM (1536) ; predictor_layers / heads / visual_pool,
+                    max_steps et num_tasks sont ignorés (l'instruction remplace la tâche)
+        action_objective : 'regression' (loss_action L1 sur le déplacement des 42 points) ou 'mcp' (cross-entropy sur
+                    les tokens GRVQ masqués, comme le papier ; action_weight est alors le poids de L_MCP)
+        motion_tokenizer_path : checkpoint de lam.lightning.motion_tokenizer.MotionTokenizerTraining (MCP) ; num_queries
+                    doit valoir le nombre de tokens du tokenizer
+        mcp_later_mask_ratio : taux de masquage des chunks après le chunk cible (5 % dans le papier)
+        vlm_path : InternVL3 au format transformers (dossier local hors ligne, ou identifiant Hugging Face)
         num_queries : K actions latentes par transition (moitié main gauche, moitié main droite)
         pair_fusion : combinaison des deux frames dans LAP / LSP, voir PerceiverBackbone
         predictor_visual_pool : le prédicteur voit aussi les patchs DINO de v_t, moyennés par blocs de pool x pool
@@ -307,6 +384,17 @@ class JALA(nn.Module):
         """
         super().__init__()
         assert num_queries % 2 == 0, "num_queries doit être pair (moitié par main)"
+        assert predictor in ('transformer', 'vlm'), predictor
+        assert action_objective in ('regression', 'mcp'), action_objective
+        self.predictor_type, self.action_objective = predictor, action_objective
+        self.mcp_later_mask_ratio = mcp_later_mask_ratio
+        self.motion_tokenizer = None
+        if action_objective == 'mcp':
+            from lam.motion_tokenizer import MotionTokenizer
+            assert motion_tokenizer_path, "action_objective='mcp' : motion_tokenizer_path nécessaire (tokenizer GRVQ appris)"
+            self.motion_tokenizer = MotionTokenizer.from_checkpoint(motion_tokenizer_path)
+            assert num_queries == self.motion_tokenizer.num_tokens, (
+                f"num_queries={num_queries} : le tokenizer produit {self.motion_tokenizer.num_tokens} tokens par chunk")
         image_size = (image_size, image_size) if isinstance(image_size, int) else tuple(image_size)
         grid_size = (image_size[0] // patch_size, image_size[1] // patch_size)
         num_patches = grid_size[0] * grid_size[1]
@@ -315,7 +403,15 @@ class JALA(nn.Module):
         for parameter in self.feature_extractor.parameters():
             parameter.requires_grad = False
 
-        perceiver_kwargs = dict(feature_dim=feature_dim, out_dim=dim, grid_size=grid_size, num_layers=perceiver_layers,
+        if predictor == 'vlm':
+            from lam.jala_vlm import VLMPredictor
+            self.predictor = VLMPredictor(vlm_path, num_queries, align_layer, freeze_vision=vlm_freeze_vision,
+                                          gradient_checkpointing=vlm_gradient_checkpointing, image_size=vlm_image_size)
+            latent_dim = self.predictor.dim               # les têtes de LAP / LSP projettent dans l'espace du VLM
+        else:
+            latent_dim = dim
+        self.latent_dim = latent_dim
+        perceiver_kwargs = dict(feature_dim=feature_dim, out_dim=latent_dim, grid_size=grid_size, num_layers=perceiver_layers,
                                 num_heads=perceiver_heads, dropout=dropout, pair_fusion=pair_fusion)
         self.lsp = Perceiver(num_queries, dim, **perceiver_kwargs)
         self.lap = copy.deepcopy(self.lsp)                     # même architecture et mêmes poids au départ
@@ -323,18 +419,21 @@ class JALA(nn.Module):
         self.lap.backbone.requires_grad_(False)
         self.lsp.queries.requires_grad_(False)
 
-        self.grid_size, self.visual_pool = grid_size, predictor_visual_pool
-        visual_grid = None
-        if predictor_visual_pool:
-            assert grid_size[0] % predictor_visual_pool == 0 and grid_size[1] % predictor_visual_pool == 0, (
-                f"grille {grid_size} non divisible par predictor_visual_pool={predictor_visual_pool}")
-            visual_grid = (grid_size[0] // predictor_visual_pool, grid_size[1] // predictor_visual_pool)
-        self.predictor = LatentPredictor(dim, num_queries, predictor_layers, predictor_heads, align_layer, max_steps,
-                                         num_tasks, dropout, feature_dim, visual_grid)
-        self.action_head = ActionHead(dim, num_queries)
-        self.probe = ActionHead(dim, num_queries)
-        self.z_action_head = ActionHead(dim, num_queries) if z_action_weight > 0 else None
-        self.forward_probe = ForwardProbe(feature_dim, dim, grid_size, forward_probe_dim, forward_probe_layers) \
+        self.grid_size, self.visual_pool = grid_size, predictor_visual_pool if predictor == 'transformer' else 0
+        if predictor == 'transformer':
+            visual_grid = None
+            if predictor_visual_pool:
+                assert grid_size[0] % predictor_visual_pool == 0 and grid_size[1] % predictor_visual_pool == 0, (
+                    f"grille {grid_size} non divisible par predictor_visual_pool={predictor_visual_pool}")
+                visual_grid = (grid_size[0] // predictor_visual_pool, grid_size[1] // predictor_visual_pool)
+            self.predictor = LatentPredictor(dim, num_queries, predictor_layers, predictor_heads, align_layer, max_steps,
+                                             num_tasks, dropout, feature_dim, visual_grid)
+        self.action_head = ActionHead(latent_dim, num_queries) if action_objective == 'regression' else None
+        self.motion_tokens = MotionTokens(latent_dim, self.motion_tokenizer.token_part, self.motion_tokenizer.codebook_size) \
+            if action_objective == 'mcp' else None
+        self.probe = ActionHead(latent_dim, num_queries)
+        self.z_action_head = ActionHead(latent_dim, num_queries) if z_action_weight > 0 else None
+        self.forward_probe = ForwardProbe(feature_dim, latent_dim, grid_size, forward_probe_dim, forward_probe_layers) \
             if forward_probe_weight > 0 else None
         self.forward_probe_weight = forward_probe_weight
 
@@ -343,6 +442,12 @@ class JALA(nn.Module):
         self.align_weight, self.align_norm = align_weight, align_norm
         self.action_weight, self.labeled_fraction, self.probe_weight = action_weight, labeled_fraction, probe_weight
         self.z_action_weight, self.variance_weight = z_action_weight, variance_weight
+
+    def train(self, mode=True):
+        super().train(mode)
+        if self.motion_tokenizer is not None:
+            self.motion_tokenizer.eval()          # figé : pas de mise à jour EMA / k-means des codebooks GRVQ
+        return self
 
     @torch.no_grad()
     def ema_update(self):
@@ -389,17 +494,58 @@ class JALA(nn.Module):
         """L1 par token (somme sur les dimensions dans le papier ; ici moyenne, l'échelle étant portée par align_weight)."""
         return (self._normalize(h) - self._normalize(z)).abs().mean()
 
-    def forward(self, images, actions=None, task_ids=None, labeled=None):
+    def motion_inputs(self, hand_chunks, labeled, batch_size, steps, device):
+        """MCP : tokens GRVQ des chunks (B, S, K), masque (B, S, K) et embeddings d'entrée du prédicteur. Masquage
+        hybride à l'entraînement, tout masqué en évaluation et pour les clips non annotés."""
+        K = self.motion_tokenizer.num_tokens
+        if hand_chunks is None:
+            tokens = torch.zeros(batch_size, steps, K, dtype=torch.long, device=device)
+            masked = torch.ones_like(tokens, dtype=torch.bool)
+        else:
+            tokens = self.motion_tokenizer.encode(hand_chunks.to(device).float())
+            masked = hybrid_mask(batch_size, steps, K, self.mcp_later_mask_ratio, device) if self.training \
+                else torch.ones_like(tokens, dtype=torch.bool)
+            masked = masked | ~labeled[:, None, None]
+        return tokens, masked, self.motion_tokens.embed(tokens, masked)
+
+    def forward(self, images, actions=None, task_ids=None, labeled=None, hand_chunks=None, instructions=None):
         """images (B, T, 3, H, W) ; actions EgoDex (B, T-1, 88, 3) ou None ; task_ids (B,) ; labeled (B,) booléen ou
-        None (tirage avec labeled_fraction à l'entraînement, tout annoté sinon)."""
+        None (tirage avec labeled_fraction à l'entraînement, tout annoté sinon) ; hand_chunks (B, T-1, C, 42, 3) :
+        trajectoires des mains (metadata['hand_chunks'], nécessaire pour MCP) ; instructions : B textes (VLM)."""
         features = self.extract_features(images)
         z = self.latent_actions(features)                          # cible : gradient vers les queries de LAP seulement
-        states = self.latent_states(features)                      # contexte : gradient vers le backbone de LSP
-        h, out = self.predictor(states, task_ids, self.visual_tokens(features))
+        B, S = z.shape[:2]
+        if labeled is None:
+            labeled = (torch.rand(B, device=images.device) < self.labeled_fraction) if self.training \
+                else torch.ones(B, dtype=torch.bool, device=images.device)
+        mcp_tokens = mcp_masked = motion_inputs = None
+        if self.action_objective == 'mcp':
+            mcp_tokens, mcp_masked, motion_inputs = self.motion_inputs(hand_chunks, labeled, B, S, images.device)
+        if self.predictor_type == 'vlm':
+            initial = features[:, 0]
+            states = self.lsp(initial, initial)                    # contexte LSP(v_0, v_0) : gradient vers le backbone de LSP
+            h, out = self.predictor(states, images[:, 0], instructions, motion_inputs, steps=S)
+            h, out = h.float(), out.float()
+        else:
+            states = self.latent_states(features)                  # contexte : gradient vers le backbone de LSP
+            h, out = self.predictor(states, task_ids, self.visual_tokens(features), motion_inputs)
 
         loss_align = self.align_loss(h, z)
         output = dict(z=z, h=h, loss_align=loss_align, features=features)
         loss = self.align_weight * loss_align
+        mcp_prediction = None
+        if self.action_objective == 'mcp' and hand_chunks is not None:
+            logits = self.motion_tokens.logits(out).float()                                  # (B, S, K, codebook)
+            selected = mcp_masked & labeled[:, None, None]
+            loss_mcp = F.cross_entropy(logits[selected], mcp_tokens[selected]) if selected.any() else logits.sum() * 0
+            predicted = logits.argmax(-1)
+            loss = loss + self.action_weight * loss_mcp
+            output.update(loss_mcp=loss_mcp, mcp_tokens=mcp_tokens, mcp_masked=mcp_masked,
+                          mcp_accuracy=(predicted == mcp_tokens)[mcp_masked].float().mean().detach(),
+                          mcp_masked_frac=mcp_masked.float().mean().detach())
+            # prédiction en un passage (argmax sur les tokens masqués), décodée en déplacement à la fin du chunk
+            mcp_prediction = self.motion_tokenizer.decode(torch.where(mcp_masked, predicted, mcp_tokens))[..., -1, :, :]
+            output['tokenizer_reconstruction'] = self.motion_tokenizer.decode(mcp_tokens)[..., -1, :, :]
         if self.variance_weight > 0:
             std = z.float().flatten(0, 2).std(0)                                             # par dimension
             loss_variance = F.relu(1 - std).mean()
@@ -417,17 +563,22 @@ class JALA(nn.Module):
 
         if actions is not None:
             target = hand_motion_target(actions.float())                                     # (B, S, 42, 3) cm
-            if labeled is None:
-                labeled = (torch.rand(images.shape[0], device=images.device) < self.labeled_fraction) if self.training \
-                    else torch.ones(images.shape[0], dtype=torch.bool, device=images.device)
-            prediction = self.action_head(out)
-            error = (prediction - target).abs().mean((1, 2, 3))                              # (B,)
             weight = labeled.float()
-            loss_action = (weight * error).sum() / weight.sum().clamp(min=1)
+            if self.action_objective == 'regression':
+                prediction = self.action_head(out)
+                error = (prediction - target).abs().mean((1, 2, 3))                          # (B,)
+                loss_action = (weight * error).sum() / weight.sum().clamp(min=1)
+                loss = loss + self.action_weight * loss_action
+                output['loss_action'] = loss_action
+            else:
+                prediction = mcp_prediction if mcp_prediction is not None else torch.zeros_like(target)
+                error = (prediction - target).abs().mean((1, 2, 3))
+                if 'tokenizer_reconstruction' in output:       # plancher : erreur du tokenizer seul (tokens réels)
+                    output['tokenizer_mae'] = (output['tokenizer_reconstruction'] - target).abs().mean().detach()
             probe_prediction = self.probe(z.detach())
             probe_error = (probe_prediction - target).abs()
             loss_probe = probe_error.mean()
-            loss = loss + self.action_weight * loss_action + self.probe_weight * loss_probe
+            loss = loss + self.probe_weight * loss_probe
             if self.z_action_head is not None:
                 z_error = (self.z_action_head(z) - target).abs().mean((1, 2, 3))
                 loss_z_action = (weight * z_error).sum() / weight.sum().clamp(min=1)
@@ -438,7 +589,7 @@ class JALA(nn.Module):
                           finger_motion_zero=relative.abs().mean().detach(),           # référence : doigts figés
                           probe_wrist_mae=(probe_prediction[..., WRIST, :] - target[..., WRIST, :]).abs().mean().detach(),
                           wrist_motion_zero=target[..., WRIST, :].abs().mean().detach())
-            output.update(loss_action=loss_action, loss_probe=loss_probe, action_prediction=prediction,
+            output.update(loss_probe=loss_probe, action_prediction=prediction,
                           action_target=target, labeled_frac=weight.mean(),
                           action_mae=error.mean().detach(),                                 # sur tous les clips, en cm
                           action_mae_zero=target.abs().mean().detach(),                     # référence : main immobile

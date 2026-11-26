@@ -29,7 +29,7 @@ proj_name=Tactile-guided-Latent-Action
 device_id=0
 export WANDB_MODE=offline
 export WANDB_START_METHOD=thread
-export WANDB_API_KEY=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
+export WANDB_API_KEY=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
 
 
 export HYDRA_FULL_ERROR=1

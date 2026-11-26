@@ -99,8 +99,9 @@ def pca_rgb(features, grid, size):
     """features (N, P, F) -> N images uint8 (size, 3), même projection PCA (3 composantes) et même échelle pour les N."""
     x = features.float().flatten(0, 1)
     x = x - x.mean(0)
-    _, _, v = torch.pca_lowrank(x, q=3, center=False)
-    y = x @ v[:, :3]
+    with torch.autocast(x.device.type, enabled=False):          # QR non implémentée en bf16 (validation bf16-mixed)
+        _, _, v = torch.pca_lowrank(x, q=3, center=False)
+        y = x @ v[:, :3]
     low, high = torch.quantile(y, 0.01, dim=0), torch.quantile(y, 0.99, dim=0)
     y = ((y - low) / (high - low).clamp(min=1e-6)).clamp(0, 1)
     y = (y.unflatten(0, features.shape[:2]).unflatten(1, grid) * 255).round().to(torch.uint8).cpu().numpy()

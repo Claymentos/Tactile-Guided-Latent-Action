@@ -67,9 +67,13 @@ class EgoDexDataModule(L.LightningDataModule):
                  img_size: int = 224,
                  backbone_name: str = 'dinov2',
                  return_heatmaps: bool = True,
-                 seed: int = 42):
+                 seed: int = 42,
+                 return_motion_chunks: bool = False,
+                 chunk_len: int = 16,
+                 load_frames: bool = True):
         """num_context transitions par clip (num_context + 1 frames espacées de window_size / num_context) ;
-        patch_size 14 -> images 224 x 392 (DINOv2), 16 -> 224 x 384 (DINOv3)."""
+        patch_size 14 -> images 224 x 392 (DINOv2), 16 -> 224 x 384 (DINOv3).
+        return_motion_chunks, chunk_len, load_frames : voir EgoDexDataset (chunks de mouvement pour la loss MCP)."""
         super().__init__()
         self.data_path = data_path
         self.window_size = window_size
@@ -82,6 +86,7 @@ class EgoDexDataModule(L.LightningDataModule):
         self.backbone_name = backbone_name
         self.return_heatmaps = return_heatmaps
         self.seed = seed
+        self.return_motion_chunks, self.chunk_len, self.load_frames = return_motion_chunks, chunk_len, load_frames
 
     def setup(self, stage):
         dataset = EgoDexDataset(root_folder=self.data_path, 
@@ -94,7 +99,10 @@ class EgoDexDataModule(L.LightningDataModule):
                                 evaluate=False, 
                                 keys='all', 
                                 var_time=False,
-                                return_heatmaps=self.return_heatmaps)
+                                return_heatmaps=self.return_heatmaps,
+                                return_motion_chunks=self.return_motion_chunks,
+                                chunk_len=self.chunk_len,
+                                load_frames=self.load_frames)
         self.num_tasks = len(dataset.all_tasks)
 
         

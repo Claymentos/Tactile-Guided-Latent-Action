@@ -1,0 +1,57 @@
+# Étape 1 de JALA avec MCP : tokenizer GRVQ du mouvement des mains (lam.motion_tokenizer) sur EgoDex, sans vidéo.
+#   python train.py --config-name train_motion_tokenizer_egodex
+# Le checkpoint obtenu va dans algo.model.motion_tokenizer_path (conf/algo/jala_paper.yaml).
+defaults:
+  - data: egodex
+  - _self_
+
+checkpoint_path: null
+
+data:
+  data_module:
+    window_size: 60                # mêmes chunks que train_jala_paper_egodex (4 chunks de 15 frames)
+    num_context: 4
+    patch_size: 16
+    return_heatmaps: false
+    return_motion_chunks: true
+    chunk_len: 16
+    load_frames: false             # seulement les annotations hdf5
+    validation_split: 0.02
+    batch_size: 256
+    num_workers: 12
+
+lightning_module:
+  _target_: lam.lightning.motion_tokenizer.MotionTokenizerTraining
+  _convert_: all
+  tokenizer:
+    chunk_len: 16
+    latents_per_part: 4            # 4 latents x 2 groupes x 4 quantifieurs = 32 tokens par (main, partie) -> 128 par chunk
+    code_dim: 64
+    groups: 2
+    num_quantizers: 4
+    codebook_size: 4096            # par partie, comme le papier
+    hidden_dim: 512
+    commitment_weight: 0.25
+  learning_rate: 3e-4
+  finger_weight: 2.0               # les doigts bougent moins que le poignet
+  scheduler_max_steps: ${trainer.max_steps}
+
+trainer:
+  _target_: lightning.Trainer
+  default_root_dir: ./runs
+  log_every_n_steps: 50
+  max_steps: 50_000
+  gradient_clip_val: 1.0
+  val_check_interval: 2_000
+  check_val_every_n_epoch: null
+  limit_val_batches: 20
+  logger:
+    _target_: lightning.pytorch.loggers.WandbLogger
+    name: motion_tokenizer_egodex
+    save_dir: ${trainer.default_root_dir}
+    mode: offline
+    project: LAM
+    resume: allow
+  callbacks:
+    - _target_: lightning.pytorch.callbacks.ModelCheckpoint
+      every_n_train_steps: 5_000

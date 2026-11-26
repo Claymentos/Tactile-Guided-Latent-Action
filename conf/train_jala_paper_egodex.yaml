@@ -1,0 +1,69 @@
+# JALA version papier sur EgoDex : python train.py --config-name train_jala_paper_egodex \
+#     algo.model.motion_tokenizer_path=runs/.../checkpoints/xxx.ckpt
+# Hyperparamètres du papier (pré-entraînement) : AdamW β = (0.9, 0.95), wd 0.05, lr 3e-5, 5 % de warmup puis cosinus,
+# gradient clip 1.0, batch effectif 128 (16 x 8 en accumulation sur un GPU), chunks de 15 frames.
+defaults:
+  - algo: jala_paper
+  - algo/feature_extractor: dinov3_vitb16
+  - data: egodex
+  - _self_
+
+checkpoint_path: null
+
+algo:
+  feature_extractor:
+    model:
+      repo_path: dinov3
+      weights_path: weights/dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth
+
+data:
+  data_module:
+    window_size: 60                # 5 frames espacées de 15 : 4 chunks de mouvement de 15 frames
+    num_context: 4
+    patch_size: 16
+    backbone_name: dinov3
+    return_heatmaps: false
+    return_motion_chunks: true     # metadata['hand_chunks'] pour le tokenizer GRVQ
+    chunk_len: 16                  # = chunk_len du tokenizer (16 points : bornes incluses)
+    validation_split: 0.02
+    batch_size: 16
+    num_workers: 12
+
+lightning_module:
+  _target_: lam.lightning.jala.JALATraining
+  model: ${algo.model}
+  learning_rate: 3e-5
+  weight_decay: 0.05
+  betas: [0.9, 0.95]
+  warmup_ratio: 0.05
+  scheduler_max_steps: ${trainer.max_steps}
+  use_task: false
+  cycle_consistency_batches: 8
+  num_logged_samples: 4
+  arrow_scale: 3.0
+  finger_focus_batches: 8
+
+trainer:
+  _target_: lightning.Trainer
+  default_root_dir: ./runs
+  log_every_n_steps: 10
+  max_steps: 30_000                # pas d'optimiseur (x 8 batches de 16 : ≈ 3.8 M clips)
+  accumulate_grad_batches: 8
+  gradient_clip_val: 1.0
+  val_check_interval: 4_000        # en batches (= 500 pas d'optimiseur)
+  check_val_every_n_epoch: null
+  limit_val_batches: 50
+  precision: bf16-mixed
+  logger:
+    _target_: lightning.pytorch.loggers.WandbLogger
+    name: jala_paper_egodex
+    save_dir: ${trainer.default_root_dir}
+    mode: offline
+    project: LAM
+    resume: allow
+    save_code: true
+  callbacks:
+    - _target_: lightning.pytorch.callbacks.LearningRateMonitor
+      logging_interval: step
+    - _target_: lightning.pytorch.callbacks.ModelCheckpoint
+      every_n_train_steps: 2_000   # ≈ 25 Go par checkpoint (VLM + états AdamW) ; seul le dernier est gardé

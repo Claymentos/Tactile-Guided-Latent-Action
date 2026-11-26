@@ -16,7 +16,8 @@ from lam.metrics import partner_indices
 class JALATraining(L.LightningModule):
     LOGGED = ('loss', 'loss_align', 'loss_action', 'loss_probe', 'loss_z_action', 'loss_variance', 'action_mae',
               'action_mae_zero', 'probe_mae', 'labeled_frac', 'loss_forward_probe', 'forward_probe_copy',
-              'probe_finger_mae', 'finger_motion_zero', 'probe_wrist_mae', 'wrist_motion_zero')
+              'probe_finger_mae', 'finger_motion_zero', 'probe_wrist_mae', 'wrist_motion_zero', 'loss_mcp',
+              'mcp_accuracy', 'mcp_masked_frac', 'tokenizer_mae')
 
     def __init__(self,
                  model: nn.Module,
@@ -52,7 +53,7 @@ class JALATraining(L.LightningModule):
 
     def on_fit_start(self):
         num_tasks = getattr(self.trainer.datamodule, 'num_tasks', None) if self.trainer.datamodule is not None else None
-        embedding = self.model.predictor.task_embedding
+        embedding = getattr(self.model.predictor, 'task_embedding', None)      # absent avec le VLM (instruction)
         if self.use_task and num_tasks and embedding is not None and num_tasks > embedding.num_embeddings:
             rank_zero_warn(f"{num_tasks} tâches EgoDex pour num_tasks={embedding.num_embeddings} : des tâches partagent "
                            f"un embedding (algo.model.num_tasks={num_tasks} l'évite)")
@@ -60,7 +61,8 @@ class JALATraining(L.LightningModule):
     def shared_step(self, batch, prefix):
         frames, actions, _, _, _, metadata = batch
         task_ids = metadata['task_id'].to(self.device).long() if self.use_task and 'task_id' in metadata else None
-        output = self.model(frames, actions, task_ids)
+        output = self.model(frames, actions, task_ids, hand_chunks=metadata.get('hand_chunks'),
+                            instructions=metadata.get('instruction'))
         batch_size = frames.shape[0]
         for key in self.LOGGED:
             if key in output:

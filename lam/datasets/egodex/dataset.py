@@ -56,12 +56,20 @@ def get_pixels_from_kp(xyz, extrinsic_matrix, patch_size):
 
 class EgoDexDataset(Dataset):
     def __init__(self, root_folder, max_context_len=90, num_context=4, patch_size=14, img_size=224, aug=None,
-                backbone_name='dinov2', train=False, evaluate=False, keys='all', var_time=False, return_heatmaps=True):
+                backbone_name='dinov2', train=False, evaluate=False, keys='all', var_time=False, return_heatmaps=True,
+                return_motion_chunks=False, chunk_len=16, load_frames=True):
         """return_heatmaps=False : ne calcule pas les belief maps des 12 points (≈ 16 Mo par clip à 224 x 384) ; heatmaps
         et all_valid_kp sont alors des tenseurs vides. metadata contient aussi 'task' (nom), 'task_id' (indice dans
-        self.all_tasks) et 'episode' (fichier vidéo)."""
+        self.all_tasks), 'episode' (fichier vidéo) et 'instruction' (description de la tâche, attribut
+        llm_description du fichier hdf5 si présent, sinon le nom de la tâche).
+        return_motion_chunks : metadata['hand_chunks'] (T-1, chunk_len, 42, 3), trajectoire des 42 points des mains
+            entre chaque paire de frames échantillonnées (bornes incluses, toutes les frames de la vidéo rééchantillonnées
+            linéairement sur chunk_len points), en mètres dans le repère caméra de la première frame (comme les
+            actions) : les chunks de mouvement de la loss MCP de JALA (lam.motion_tokenizer).
+        load_frames=False : ne décode pas la vidéo (frames vide), pour apprendre le tokenizer de mouvement."""
         super(EgoDexDataset, self).__init__()
         self.return_heatmaps = return_heatmaps
+        self.return_motion_chunks, self.chunk_len, self.load_frames = return_motion_chunks, chunk_len, load_frames
         if train:
             self.data_root = os.path.join(root_folder, 'part1')
         else:
@@ -203,8 +211,8 @@ class EgoDexDataset(Dataset):
             heatmaps, all_valid_kp = np.empty([0]), np.empty([0])
         for ii in range(len(indices)-1):
             idx = indices[ii]
-            frame = self.image_transform(frames[idx].asnumpy())
-            curr_frames.append(frame)
+            if self.load_frames:
+                curr_frames.append(self.image_transform(frames[idx].asnumpy()))
 
             goal_idx = indices[ii+1]
             if ii==0:
@@ -219,6 +227,12 @@ class EgoDexDataset(Dataset):
                 heatmaps[ii, :len(belief_maps)] = belief_maps                  # this is useful for running some baselines
                 all_valid_kp[ii, :len(belief_maps)] = valid_kp_mask[:,0]
 
+        actions = torch.Tensor(np.array(actions))
+        heatmaps = torch.Tensor(heatmaps)
+        all_valid_kp = torch.Tensor(all_valid_kp)
+        if not self.load_frames:
+            return torch.empty(0), actions, heatmaps, all_valid_kp
+
         idx = indices[-1]
         frame = self.image_transform(frames[idx].asnumpy())
         curr_frames.append(frame)
@@ -232,9 +246,6 @@ class EgoDexDataset(Dataset):
                 curr_frames = transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])(curr_frames)
             else:
                 curr_frames = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])(curr_frames)
-        actions = torch.Tensor(np.array(actions))
-        heatmaps = torch.Tensor(heatmaps)
-        all_valid_kp = torch.Tensor(all_valid_kp)
         return curr_frames, actions, heatmaps, all_valid_kp
 
 
@@ -242,7 +253,12 @@ class EgoDexDataset(Dataset):
         clip_id, frame_segment = self.idx_to_data[idx]
         clip_name = self.all_files[clip_id]
         clip_file = os.path.join(clip_name)
-        vr = VideoReader(clip_file, num_threads=-1, ctx=cpu(0))
+        annotation_file = clip_file.replace('.mp4', '.hdf5')
+        annotations = h5py.File(annotation_file, 'r')
+        if self.load_frames:
+            vr = VideoReader(clip_file, num_threads=-1, ctx=cpu(0))
+        else:
+            vr = range(len(annotations['transforms']['camera']))        # seulement la longueur
         frames = vr
         max_context_len = self.max_context_len
         frame_skip = int(self.max_context_len/self.num_context)
@@ -256,16 +272,15 @@ class EgoDexDataset(Dataset):
 
         # frame_id represents the last frame in the (to be) selected sequence
 
-        h, w = frames[0].shape[:2]
         metadata={}
         metadata['vid_file'] = clip_file
         metadata['episode'] = clip_file
         metadata['task_id'] = self.file_tasks[clip_id]
         metadata['task'] = self.all_tasks[self.file_tasks[clip_id]]
-
-
-        annotation_file = clip_file.replace('.mp4', '.hdf5')
-        annotations = h5py.File(annotation_file, 'r')
+        instruction = annotations.attrs.get('llm_description', None)
+        if isinstance(instruction, bytes):
+            instruction = instruction.decode()
+        metadata['instruction'] = str(instruction) if instruction else metadata['task'].replace('_', ' ')
 
         if self.var_time:
             indices = random.sample(range(frame_id-max_context_len, frame_id), min(self.num_context,len(range(frame_id-max_context_len, frame_id))))  # some videos may be smaller than num_context
@@ -290,9 +305,30 @@ class EgoDexDataset(Dataset):
         # points des mains sur l'image t (lam.jala_viz.project)
         cameras = np.array([annotations['transforms']['camera'][i] for i in indices], dtype=np.float64)   # (T, 4, 4)
         metadata['cam0_to_camt'] = torch.from_numpy(np.linalg.inv(cameras) @ cameras[0]).float()
+        if self.return_motion_chunks:
+            metadata['hand_chunks'] = self.motion_chunks(annotations, indices, np.linalg.inv(cameras[0]))
         annotations.close()
 
         return curr_frames, actions, rel_t, heatmaps, all_valid_kp, metadata
+
+
+    def motion_chunks(self, annotations, indices, world_to_cam0):
+        """Trajectoire des 42 points entre indices[i] et indices[i+1] (toutes les frames, bornes incluses),
+        rééchantillonnée sur chunk_len points : (T-1, chunk_len, 42, 3) en mètres, repère caméra de la frame 0."""
+        transforms = annotations['transforms']
+        start, stop = int(indices[0]), int(min(indices[-1], len(transforms['camera']) - 1))
+        hand_keys = MODELS['all']['left_keys'] + MODELS['all']['right_keys']
+        points = np.stack([np.asarray(transforms[key][start:stop + 1])[:, :3, 3] for key in hand_keys], axis=1)   # (N, 42, 3)
+        points = points @ world_to_cam0[:3, :3].T + world_to_cam0[:3, 3]
+        chunks = []
+        for a, b in zip(indices[:-1], indices[1:]):
+            a, b = min(int(a), stop) - start, min(int(b), stop) - start
+            position = np.linspace(a, b, self.chunk_len)
+            low = np.floor(position).astype(int)
+            high = np.minimum(low + 1, b)
+            w = (position - low)[:, None, None]
+            chunks.append(points[low] * (1 - w) + points[high] * w)
+        return torch.from_numpy(np.stack(chunks)).float()
 
 
 class EgoDexActionsOnlyDataset(Dataset):
