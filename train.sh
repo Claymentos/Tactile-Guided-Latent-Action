@@ -1,7 +1,7 @@
 #!/bin/sh
-#SBATCH --job-name=lam_egotouch
-#SBATCH --output=logs/lam_egotouch.%j.out
-#SBATCH --error=logs/lam_egotouch.%j.err 
+#SBATCH --job-name=lam_egotouch_patches_loss_no_spatial_embedding
+#SBATCH --output=logs/lam_egotouch_patches_loss_no_spatial_embedding.%j.out
+#SBATCH --error=logs/lam_egotouch_patches_loss_no_spatial_embedding.%j.err 
 
 #SBATCH -A uli@h100  # uli remplace par ton nom de projet 
 #SBATCH -C h100

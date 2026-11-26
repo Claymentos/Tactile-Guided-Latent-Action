@@ -13,7 +13,7 @@ model:
     patch_size: ${algo.feature_extractor.model.patch_size}
     max_seq_len: 16
     add_readout_token: true
-    use_spatial_pos_embedding: true  # false : l'encodeur ne voit pas où sont les patchs (l'action dit « quoi », pas « où »)
+    use_spatial_pos_embedding: false  # false : l'encodeur ne voit pas où sont les patchs (l'action dit « quoi », pas « où »)
   decoder:
     _target_: lam.st.STTransformer
     model_dim: ${algo.feature_extractor.model.model_dim}
@@ -29,4 +29,4 @@ model:
   num_register_tokens: 0
   register_dropout_mean: 0.0
   register_dropout_std: 0.0
-  recon_change_threshold: null   # null : MSE sur toute l'image ; un nombre : MSE des seuls patchs dont |frame t+1 - frame t| moyen dépasse ce seuil (pixels dans [0, 1], extracteur identity)
+  recon_change_threshold: 0.03   # null : MSE sur toute l'image ; un nombre : MSE des seuls patchs dont |frame t+1 - frame t| moyen dépasse ce seuil (pixels dans [0, 1], extracteur identity)
