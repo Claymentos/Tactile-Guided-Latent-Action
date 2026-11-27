@@ -1,5 +1,5 @@
 defaults:
-  - algo: lam_spatial_decoder
+  - algo: lam
   - algo/quantization: vq
   - algo/feature_extractor: identity
   - algo/perceptual_regularizer: none
